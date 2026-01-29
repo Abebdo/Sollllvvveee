@@ -58,7 +58,7 @@ export class RiskEngine {
   static async assess(input: string, type: InputType): Promise<RiskAssessment> {
     try {
         // Call the worker
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787/analyze';
+        const API_URL = import.meta.env.VITE_API_URL || '/analyze';
         const response = await fetch(API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -113,7 +113,7 @@ export class RiskEngine {
         return {
             risk_level: 'Minimal',
             primary_hypothesis: "Analysis Service Unavailable",
-            summary: "Could not connect to analysis backend. Ensure the Worker is running on localhost:8787.",
+            summary: "Could not connect to analysis backend. Please try again later.",
             uncertainty: { confidence_percentage: 0, known_unknowns: [], suggested_verification: [] },
             key_factors: [],
             recommended_action: "Retry later.",
