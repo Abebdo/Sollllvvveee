@@ -3,7 +3,10 @@ info:
   title: Solveya Cyber Intelligence API
   description: |
     Cloudflare-native threat analysis API.
-    Provides probabilistic risk assessment using defense-in-depth heuristics and ML inference.
+    Designed according to Zero Trust principles using Defense in Depth with continuous monitoring.
+
+    DISCLAIMER: Security recommendations are probabilistic assessments based on available intelligence.
+    False positives and negatives may occur. Critical decisions should involve human verification.
   version: 1.0.0
   contact:
     name: Security Engineering
@@ -89,6 +92,17 @@ components:
           type: boolean
           default: false
           description: Bypass cache and force re-analysis (requires auth).
+        correlationId:
+            type: string
+            description: Client-provided ID for audit logging.
+        context:
+            type: object
+            properties:
+                source:
+                    type: string
+                timestamp:
+                    type: string
+                    format: date-time
 
     AnalysisResponse:
       type: object
@@ -107,19 +121,51 @@ components:
           enum: [processing, completed, failed]
         result:
           $ref: '#/components/schemas/AnalysisResult'
+        error:
+          $ref: '#/components/schemas/ErrorResponse'
+        meta:
+            type: object
+            properties:
+                executionTimeMs:
+                    type: integer
+                cached:
+                    type: boolean
+                tierUsed:
+                    type: array
+                    items:
+                        type: string
+                modelVersion:
+                    type: string
     
     AnalysisResult:
       type: object
       properties:
+        artifact:
+            type: object
+            properties:
+                raw:
+                    type: string
+                type:
+                    $ref: '#/components/schemas/ArtifactType'
+                canonical:
+                    type: string
         verdict:
-          type: string
-          enum: [MALICIOUS, SUSPICIOUS, BENIGN, UNKNOWN]
+          $ref: '#/components/schemas/RiskVerdict'
         riskScore:
           type: integer
           minimum: 0
           maximum: 100
+        confidence:
+            type: number
+            format: float
+            minimum: 0.0
+            maximum: 1.0
         summary:
           type: string
+        features:
+            type: object
+            additionalProperties:
+                $ref: '#/components/schemas/FeatureResult'
         explanation:
           type: object
           properties:
@@ -127,7 +173,43 @@ components:
               type: array
               items:
                 type: string
+            technicalAnalysis:
+                type: string
+            recommendedActions:
+                type: array
+                items:
+                    type: string
     
+    FeatureResult:
+        type: object
+        properties:
+            id:
+                type: string
+            tier:
+                $ref: '#/components/schemas/IntelligenceTier'
+            detected:
+                type: boolean
+            riskContribution:
+                type: number
+            description:
+                type: string
+            evidence:
+                type: array
+                items:
+                    type: string
+
+    ArtifactType:
+        type: string
+        enum: [url, ipv4, ipv6, domain, hash_md5, hash_sha1, hash_sha256, text, email]
+
+    RiskVerdict:
+        type: string
+        enum: [MALICIOUS, SUSPICIOUS, BENIGN, UNKNOWN]
+
+    IntelligenceTier:
+        type: string
+        enum: [TIER_1_LOCAL, TIER_2_PUBLIC_API, TIER_3_SIMULATED, TIER_4_PLATFORM]
+
     ErrorResponse:
       type: object
       required:
