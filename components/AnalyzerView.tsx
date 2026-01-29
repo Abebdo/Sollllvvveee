@@ -36,7 +36,7 @@ export const AnalyzerView: React.FC<AnalyzerViewProps> = ({ focused, setFocused 
       await new Promise(resolve => setTimeout(resolve, ANALYSIS_STEPS[i].duration));
     }
 
-    const result = RiskEngine.assess(input, classification.type);
+    const result = await RiskEngine.assess(input, classification.type);
     setAssessment(result);
     setStatus('complete');
   };

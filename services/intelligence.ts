@@ -1,7 +1,7 @@
-import { ClassificationResult, InputType, RiskAssessment } from '../types';
+import { ClassificationResult, InputType, RiskAssessment, RiskLevel } from '../types';
 
 /**
- * 2.2 Input Classification Algorithm (Ported from Python Spec)
+ * 2.2 Input Classification Algorithm
  */
 export class InputClassifier {
   static classify(input: string): ClassificationResult {
@@ -52,106 +52,73 @@ export class InputClassifier {
 }
 
 /**
- * 3.1 NLP Intelligence Engine (Mock/Heuristic Implementation)
- */
-export class NLPIntelligence {
-  static analyze(text: string): { risk: number; signals: string[] } {
-    let risk = 0;
-    const signals: string[] = [];
-    const lower = text.toLowerCase();
-
-    // Urgency
-    if (lower.match(/\b(immediately|urgent|asap|24 hours|deadline)\b/)) {
-      risk += 30;
-      signals.push('Temporal Pressure');
-    }
-
-    // Threat
-    if (lower.match(/\b(suspended|terminated|legal action|arrest|locked)\b/)) {
-      risk += 40;
-      signals.push('Threat Escalation');
-    }
-
-    // Authority
-    if (lower.match(/\b(irs|fbi|official|administrator|security team)\b/)) {
-      risk += 20;
-      signals.push('Authority Claim');
-    }
-
-    // Financial
-    if (lower.match(/\b(bank|verify|payment|credit card|invoice)\b/)) {
-      risk += 25;
-      signals.push('Financial Context');
-    }
-
-    return { risk: Math.min(risk, 95), signals };
-  }
-}
-
-/**
- * 4.1 Risk Engine (Simulated)
+ * 4.1 Risk Engine (Backend Connected)
  */
 export class RiskEngine {
-  static assess(input: string, type: InputType): RiskAssessment {
-    // Basic Heuristics for the Demo
-    const nlp = NLPIntelligence.analyze(input);
-    
-    // Default legitimate state
-    let riskLevel: any = 'Minimal';
-    let summary = "No significant threats detected in the provided input.";
-    let primaryHypothesis = "Legitimate Communication";
-    let confidence = 90;
+  static async assess(input: string, type: InputType): Promise<RiskAssessment> {
+    try {
+        // Call the worker
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787/analyze';
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ artifact: input, forceRefresh: true })
+        });
 
-    if (nlp.risk > 70) {
-      riskLevel = 'Critical';
-      summary = "High-risk indicators suggest a targeted social engineering attack.";
-      primaryHypothesis = "Phishing / Social Engineering";
-      confidence = 85;
-    } else if (nlp.risk > 40) {
-      riskLevel = 'Medium';
-      summary = "Suspicious elements detected, but intent is not fully confirmed.";
-      primaryHypothesis = "Suspicious Activity";
-      confidence = 70;
-    } else if (type === 'url' || type === 'domain') {
-       // Simulate checks
-       if (input.includes('paypal') || input.includes('login') || input.includes('secure')) {
-         riskLevel = 'High';
-         summary = "URL structure mimics sensitive authentication portals.";
-         primaryHypothesis = "Credential Harvesting Site";
-         confidence = 80;
-         nlp.signals.push("Homograph Attack Potential");
-       }
+        if (!response.ok) {
+            throw new Error(`Backend responded with ${response.status}`);
+        }
+
+        const data = await response.json();
+        const result = data.result;
+
+        // Map AnalysisResult (Backend) to RiskAssessment (Frontend)
+        let riskLevel: RiskLevel = 'Minimal';
+        if (result.riskScore > 80) riskLevel = 'Critical';
+        else if (result.riskScore > 60) riskLevel = 'High';
+        else if (result.riskScore > 40) riskLevel = 'Medium';
+        else if (result.riskScore > 20) riskLevel = 'Low';
+
+        const factors = result.features ? Object.values(result.features).map((f: any) => ({
+            description: f.description,
+            direction: 'for' as const,
+            confidence: 0.9
+        })) : [];
+
+        const technicalSignals = result.features ? Object.values(result.features).map((f: any) => ({
+             name: f.id,
+             value: f.detected ? 'DETECTED' : 'CLEAN',
+             detected: f.detected
+        })) : [];
+
+        technicalSignals.push({ name: "Global Risk Score", value: `${result.riskScore}/100`, detected: result.riskScore > 0 });
+        technicalSignals.push({ name: "AI Verification", value: result.summary.includes("Simulated") ? "SIMULATED" : "ACTIVE", detected: true });
+
+        return {
+            risk_level: riskLevel,
+            primary_hypothesis: result.verdict === 'BENIGN' ? "Legitimate Activity" : (result.verdict === 'MALICIOUS' ? "Malicious Activity" : "Suspicious Activity"),
+            summary: result.summary,
+            uncertainty: {
+                confidence_percentage: (result.confidence || 0.8) * 100,
+                known_unknowns: ["External threat intel feeds limited in Dev Mode"],
+                suggested_verification: result.explanation.recommendedActions || []
+            },
+            key_factors: factors,
+            recommended_action: (result.explanation.recommendedActions && result.explanation.recommendedActions[0]) || "No action required.",
+            technical_signals: technicalSignals
+        };
+
+    } catch (error) {
+        console.error("Analysis Failed:", error);
+        return {
+            risk_level: 'Minimal',
+            primary_hypothesis: "Analysis Service Unavailable",
+            summary: "Could not connect to analysis backend. Ensure the Worker is running on localhost:8787.",
+            uncertainty: { confidence_percentage: 0, known_unknowns: [], suggested_verification: [] },
+            key_factors: [],
+            recommended_action: "Retry later.",
+            technical_signals: []
+        };
     }
-
-    return {
-      risk_level: riskLevel,
-      primary_hypothesis: primaryHypothesis,
-      summary: summary,
-      uncertainty: {
-        confidence_percentage: confidence,
-        known_unknowns: [
-          "Sender identity unverified via SPF/DKIM (Text Input)",
-          "Real-time domain reputation unavailable in offline mode"
-        ],
-        suggested_verification: [
-          "Verify sender address directly",
-          "Check URL in browser sandbox"
-        ]
-      },
-      key_factors: nlp.signals.map(s => ({
-        description: s,
-        direction: 'for',
-        confidence: 0.9
-      })),
-      recommended_action: riskLevel === 'Minimal' 
-        ? "No action required. Proceed with normal caution." 
-        : "Do not click links or download attachments. Report to IT Security immediately.",
-      technical_signals: [
-        { name: "Urgency Detection", value: nlp.signals.includes("Temporal Pressure") ? "DETECTED" : "CLEAN", detected: nlp.signals.includes("Temporal Pressure") },
-        { name: "Homograph Check", value: "PASSED", detected: false },
-        { name: "Entropy Analysis", value: "3.2 bits (Normal)", detected: false },
-        { name: "Heuristic Score", value: `${nlp.risk}/100`, detected: nlp.risk > 0 }
-      ]
-    };
   }
 }
