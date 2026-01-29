@@ -1,0 +1,12 @@
+name = "solveya-backend"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# [ai]
+# binding = "AI"
+
+[[kv_namespaces]]
+binding = "ANALYSIS_CACHE"
+id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+preview_id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
