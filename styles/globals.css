@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Primary Brand - Deep Space */
+  --solveya-cyan: #d946ef; /* Mapped to Fuchsia */
+  --solveya-cyan-glow: rgba(217, 70, 239, 0.4);
+  --solveya-blue: #8b5cf6; /* Mapped to Violet */
+  --solveya-blue-dark: #7c3aed;
+  
+  /* Risk Levels (Semantic) */
+  --risk-minimal: #10b981;
+  --risk-minimal-glow: rgba(16, 185, 129, 0.3);
+  --risk-low: #22c55e;
+  --risk-medium: #eab308;
+  --risk-high: #f97316;
+  --risk-critical: #ef4444;
+  --risk-critical-glow: rgba(239, 68, 68, 0.4);
+  
+  /* Backgrounds */
+  --bg-deep: #0b001a;
+  --bg-elevated: #180a2e;
+  --bg-card: #240f45;
+  --bg-input: rgba(30, 10, 50, 0.8);
+  --bg-hover: rgba(124, 58, 237, 0.2);
+  
+  /* Text */
+  --text-primary: #f9fafb;
+  --text-secondary: #e9d5ff;
+  --text-muted: #a78bfa;
+  --text-inverse: #111827;
+  
+  /* Borders */
+  --border-subtle: rgba(139, 92, 246, 0.3);
+  --border-focus: #d946ef;
+}
+
+body {
+  background-color: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+}
+
+/* Custom Scrollbar for Purple Theme */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-deep);
+}
+::-webkit-scrollbar-thumb {
+  background: #4c1d95;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #6d28d9;
+}

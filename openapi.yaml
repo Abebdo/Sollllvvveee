@@ -1,0 +1,150 @@
+openapi: 3.0.3
+info:
+  title: Solveya Cyber Intelligence API
+  description: |
+    Cloudflare-native threat analysis API.
+    Provides probabilistic risk assessment using defense-in-depth heuristics and ML inference.
+  version: 1.0.0
+  contact:
+    name: Security Engineering
+    url: https://github.com/solveya/platform
+servers:
+  - url: https://api.solveya.io/v1
+    description: Production Edge
+paths:
+  /analyze:
+    post:
+      summary: Submit artifact for analysis
+      description: |
+        Initiates a multi-tier analysis of the provided artifact (URL, IP, Hash, etc.).
+        Returns cached results immediately if available (sub-100ms), otherwise performs real-time analysis.
+      operationId: submitAnalysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalysisRequest'
+      responses:
+        '200':
+          description: Analysis completed or retrieved from cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResponse'
+          headers:
+            X-Cache-Status:
+              schema:
+                type: string
+                enum: [HIT, MISS]
+              description: Whether the result was served from Cloudflare KV.
+        '400':
+          description: Invalid input or unsupported artifact type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds to wait before retrying.
+  
+  /analyze/{id}:
+    get:
+      summary: Retrieve analysis result by ID
+      operationId: getAnalysis
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Analysis details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResponse'
+        '404':
+          description: Analysis not found or expired
+
+components:
+  schemas:
+    AnalysisRequest:
+      type: object
+      required:
+        - artifact
+      properties:
+        artifact:
+          type: string
+          description: The input string to analyze (URL, IP, Domain, Hash).
+          maxLength: 8192
+          example: "http://suspect-login.com"
+        forceRefresh:
+          type: boolean
+          default: false
+          description: Bypass cache and force re-analysis (requires auth).
+
+    AnalysisResponse:
+      type: object
+      required:
+        - id
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [processing, completed, failed]
+        result:
+          $ref: '#/components/schemas/AnalysisResult'
+    
+    AnalysisResult:
+      type: object
+      properties:
+        verdict:
+          type: string
+          enum: [MALICIOUS, SUSPICIOUS, BENIGN, UNKNOWN]
+        riskScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+        summary:
+          type: string
+        explanation:
+          type: object
+          properties:
+            primaryFactors:
+              type: array
+              items:
+                type: string
+    
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+          example: "Input validation failed: Invalid IP address format."
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+security:
+  - ApiKeyAuth: []

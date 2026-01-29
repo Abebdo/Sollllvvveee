@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Solveya 2.0 | Cyber-Intelligence</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              // Primary Brand - Deep Space Theme
+              background: '#0b001a', // Deep Purple Black
+              surface: '#180a2e',    // Lighter Purple Surface
+              card: '#240f45',       // Card Background
+              input: 'rgba(24, 10, 46, 0.8)', 
+              
+              primary: '#d946ef',     // Fuchsia-500
+              secondary: '#8b5cf6',   // Violet-500
+              accent: '#a855f7',      // Purple-500
+              
+              // Gradients
+              'brand-start': '#a855f7',
+              'brand-end': '#ec4899',
+
+              // Risk Levels (Semantic - kept for logic)
+              'risk-minimal': '#10b981',
+              'risk-low': '#22c55e',
+              'risk-medium': '#eab308',
+              'risk-high': '#f97316',
+              'risk-critical': '#ef4444',
+            },
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+            },
+            backgroundImage: {
+              'hero-glow': 'radial-gradient(circle at 50% 0%, rgba(124, 58, 237, 0.3) 0%, rgba(11, 0, 26, 0) 70%)',
+              'btn-gradient': 'linear-gradient(90deg, #9333ea 0%, #db2777 100%)',
+            },
+            boxShadow: {
+              'glow-purple': '0 0 40px rgba(168, 85, 247, 0.4)',
+              'glow-pink': '0 0 30px rgba(236, 72, 153, 0.3)',
+              'card-elevated': '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
+            },
+            animation: {
+              'float': 'float 6s ease-in-out infinite',
+              'slide-up': 'slide-up 0.5s ease-out forwards',
+              'fade-in': 'fade-in 0.5s ease-out forwards',
+              'scale-in': 'scale-in 0.4s ease-out forwards',
+            },
+            keyframes: {
+              float: {
+                '0%, 100%': { transform: 'translateY(0)' },
+                '50%': { transform: 'translateY(-20px)' },
+              },
+              'slide-up': {
+                'from': { opacity: '0', transform: 'translateY(20px)' },
+                'to': { opacity: '1', transform: 'translateY(0)' },
+              },
+              'fade-in': {
+                'from': { opacity: '0' },
+                'to': { opacity: '1' },
+              },
+              'scale-in': {
+                'from': { opacity: '0', transform: 'scale(0.95)' },
+                'to': { opacity: '1', transform: 'scale(1)' },
+              }
+            }
+          },
+        },
+      }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #0b001a;
+        color: #f9fafc;
+        overflow-x: hidden;
+      }
+      
+      /* Starfield Effect */
+      .stars {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        background-image: 
+          radial-gradient(2px 2px at 20px 30px, #eee, rgba(0,0,0,0)),
+          radial-gradient(2px 2px at 40px 70px, #fff, rgba(0,0,0,0)),
+          radial-gradient(2px 2px at 50px 160px, #ddd, rgba(0,0,0,0)),
+          radial-gradient(2px 2px at 90px 40px, #fff, rgba(0,0,0,0)),
+          radial-gradient(2px 2px at 130px 80px, #fff, rgba(0,0,0,0));
+        background-repeat: repeat;
+        background-size: 200px 200px;
+        opacity: 0.3;
+        z-index: 0;
+      }
+      
+      /* Glass Panel override */
+      .glass-panel {
+        background: rgba(24, 10, 46, 0.6);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(139, 92, 246, 0.2);
+      }
+
+      ::-webkit-scrollbar { width: 8px; }
+      ::-webkit-scrollbar-track { background: #0b001a; }
+      ::-webkit-scrollbar-thumb { background: #3b0764; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #581c87; }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
+    "clsx": "https://esm.sh/clsx@^2.1.0",
+    "tailwind-merge": "https://esm.sh/tailwind-merge@^2.2.1"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
