@@ -6,6 +6,7 @@ import { AppError, ErrorCode, createErrorResponse } from './errors';
 import { analyzeTemporal } from './temporal';
 import { calculateConfidence } from './confidence';
 import { buildReasoningGraph } from './reasoning';
+import { CognitiveTraceStep } from './cognitive_trace';
 
 export const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -127,6 +128,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     const signals: string[] = [];
     const whyItMatters: string[] = [];
     const executionDetails: any[] = [];
+    const cognitiveTrace: CognitiveTraceStep[] = [];
 
     // Collect valid engine results for confidence calculation
     const validEngineResults: EngineResult[] = [];
@@ -150,6 +152,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
                 });
             }
             if (r.signals) signals.push(...r.signals);
+            if (r.trace) cognitiveTrace.push(...r.trace);
 
             // Score Logic (Max score approach)
             if (r.score > totalScore) totalScore = r.score;
@@ -189,6 +192,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         confidence_detail: confidenceProfile,
         reasoning: reasoningGraph,
         temporal: temporalAnalysis,
+        cognitive_trace: cognitiveTrace,
 
         signals: Array.from(new Set(signals)),
         why_it_matters: whyItMatters,

@@ -1,5 +1,6 @@
 import { ArtifactType, FeatureResult } from '../types';
 import { EngineResult } from './types';
+import { CognitiveTraceStep } from '../cognitive_trace';
 
 // Retain constants
 const SUSPICIOUS_TLDS = new Set([
@@ -20,6 +21,7 @@ export function analyzeHeuristic(artifact: string, type: ArtifactType): EngineRe
     let score = 0;
     const features: FeatureResult[] = [];
     const signals: string[] = [];
+    const trace: CognitiveTraceStep[] = [];
     const lower = artifact.toLowerCase();
 
     const addFeature = (id: string, description: string, risk: number, evidence: string) => {
@@ -33,6 +35,14 @@ export function analyzeHeuristic(artifact: string, type: ArtifactType): EngineRe
             evidence: [evidence]
         });
         score += risk;
+
+        trace.push({
+            engine: 'heuristic',
+            observation: evidence,
+            rationale: description,
+            impact: risk,
+            confidence: 0.9
+        });
     };
 
     // --- Universal Checks ---
@@ -134,6 +144,7 @@ export function analyzeHeuristic(artifact: string, type: ArtifactType): EngineRe
         signals,
         features,
         summary,
-        explanation
+        explanation,
+        trace
     };
 }

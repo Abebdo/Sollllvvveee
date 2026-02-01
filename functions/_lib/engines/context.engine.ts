@@ -1,5 +1,6 @@
 import { ArtifactType, FeatureResult, AnalysisContext } from '../types';
 import { EngineResult } from './types';
+import { CognitiveTraceStep } from '../cognitive_trace';
 import { calculateContextAdjustment } from '../context';
 
 const PRIVATE_IP_RANGES = [
@@ -12,6 +13,7 @@ const PRIVATE_IP_RANGES = [
 export function analyzeContext(artifact: string, type: ArtifactType, context?: AnalysisContext): EngineResult {
     const features: FeatureResult[] = [];
     const signals: string[] = [];
+    const trace: CognitiveTraceStep[] = [];
     let score = 0;
 
     // 1. Internal Context Analysis (IP ranges, email format)
@@ -26,6 +28,14 @@ export function analyzeContext(artifact: string, type: ArtifactType, context?: A
                 riskContribution: 0, // Not malicious, just internal. Maybe suspicious if public submission.
                 description: 'Private IP address range (Bogon)',
                 evidence: [artifact]
+            });
+
+            trace.push({
+                engine: 'context',
+                observation: artifact,
+                rationale: 'Private IP address range (Bogon)',
+                impact: 0,
+                confidence: 1.0
             });
         }
     }
@@ -43,6 +53,15 @@ export function analyzeContext(artifact: string, type: ArtifactType, context?: A
                  description: 'Unusual email user-part format',
                  evidence: [user]
              });
+
+             trace.push({
+                engine: 'context',
+                observation: user,
+                rationale: 'Unusual email user-part format',
+                impact: 10,
+                confidence: 0.6
+             });
+
              score += 10;
          }
     }
@@ -60,6 +79,15 @@ export function analyzeContext(artifact: string, type: ArtifactType, context?: A
             description: adjustment.reason || 'Contextual Risk Adjustment',
             evidence: [context?.source || 'Unknown Source']
         });
+
+        trace.push({
+            engine: 'context',
+            observation: context?.source || 'Unknown Source',
+            rationale: adjustment.reason || 'Contextual Risk Adjustment',
+            impact: adjustment.scoreModifier,
+            confidence: 0.6
+        });
+
         score += adjustment.scoreModifier;
     }
 
@@ -69,6 +97,7 @@ export function analyzeContext(artifact: string, type: ArtifactType, context?: A
         score: Math.min(100, Math.max(0, score)),
         signals,
         features,
-        summary: adjustment.scoreModifier > 0 ? `Risk increased due to ${context?.source} context.` : 'Standard context analysis.'
+        summary: adjustment.scoreModifier > 0 ? `Risk increased due to ${context?.source} context.` : 'Standard context analysis.',
+        trace
     };
 }

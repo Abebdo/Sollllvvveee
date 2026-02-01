@@ -3,6 +3,8 @@
  * Phase 2: Production Hardening
  */
 
+import { CognitiveTraceStep } from './cognitive_trace';
+
 export interface Env {
   AI: any;
   ANALYSIS_CACHE: any; // KV Namespace
@@ -98,6 +100,7 @@ export interface AnalysisResult {
   confidence_detail?: ConfidenceProfile;
   reasoning?: ReasoningGraph;
   temporal?: TemporalAnalysis;
+  cognitive_trace?: CognitiveTraceStep[];
 
   // New Explainability & Auditability
   signals: string[]; // specific signals detected

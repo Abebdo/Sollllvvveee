@@ -1,5 +1,6 @@
 import { ArtifactType, FeatureResult } from '../types';
 import { EngineResult } from './types';
+import { CognitiveTraceStep } from '../cognitive_trace';
 
 // Mock Databases
 const SAFE_DOMAINS = new Set([
@@ -18,6 +19,7 @@ const MALICIOUS_PATTERNS = [
 export function analyzeReputation(artifact: string, type: ArtifactType): EngineResult {
     const features: FeatureResult[] = [];
     const signals: string[] = [];
+    const trace: CognitiveTraceStep[] = [];
     let score = 0;
 
     // Default neutral
@@ -43,9 +45,18 @@ export function analyzeReputation(artifact: string, type: ArtifactType): EngineR
                 description: 'Domain found in highly trusted allowlist',
                 evidence: [domain]
             });
+
+            trace.push({
+                engine: 'reputation',
+                observation: domain,
+                rationale: 'Domain found in highly trusted allowlist',
+                impact: -100,
+                confidence: 1.0
+            });
+
             score = 0;
             confidence = 1.0;
-            return { name: 'reputation', confidence, score, signals, features };
+            return { name: 'reputation', confidence, score, signals, features, trace };
         }
 
         // Blocklist / Keywords
@@ -61,6 +72,15 @@ export function analyzeReputation(artifact: string, type: ArtifactType): EngineR
                  description: 'Domain matches known malicious pattern',
                  evidence: [match]
              });
+
+             trace.push({
+                engine: 'reputation',
+                observation: match,
+                rationale: 'Domain matches known malicious pattern',
+                impact: 90,
+                confidence: 0.9
+             });
+
              score += 90;
              confidence = 0.9;
         }
@@ -71,6 +91,7 @@ export function analyzeReputation(artifact: string, type: ArtifactType): EngineR
         confidence,
         score: Math.min(100, Math.max(0, score)),
         signals,
-        features
+        features,
+        trace
     };
 }
