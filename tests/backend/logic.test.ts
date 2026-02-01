@@ -36,7 +36,7 @@ describe('Heuristic Engine', () => {
     it('should detect phishing keywords', () => {
         const result = analyzeHeuristic('http://secure-login-update.com', 'url');
         expect(result.score).toBeGreaterThan(0);
-        expect(result.features['credential_targeting']).toBeDefined();
+        expect(result.features.find(f => f.id === 'credential_targeting')).toBeDefined();
     });
 
     it('should be deterministic', () => {

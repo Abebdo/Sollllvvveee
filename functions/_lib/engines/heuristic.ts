@@ -1,12 +1,7 @@
 import { ArtifactType, FeatureResult } from '../types';
+import { EngineResult } from './types';
 
-export interface HeuristicAnalysisResult {
-    score: number;
-    features: Record<string, FeatureResult>;
-    summary: string;
-    explanation: string;
-}
-
+// Retain constants
 const SUSPICIOUS_TLDS = new Set([
     'xyz', 'top', 'gq', 'tk', 'ml', 'cf', 'ga', 'icu', 'cn', 'ru', 'work', 'date', 'click'
 ]);
@@ -21,20 +16,22 @@ const URGENCY_KEYWORDS = [
     'urgent', 'immediate', 'action required', 'suspended', 'locked', 'unauthorized', 'deadline', 'expires'
 ];
 
-export function analyzeHeuristic(artifact: string, type: ArtifactType): HeuristicAnalysisResult {
+export function analyzeHeuristic(artifact: string, type: ArtifactType): EngineResult {
     let score = 0;
-    const features: Record<string, FeatureResult> = {};
+    const features: FeatureResult[] = [];
+    const signals: string[] = [];
     const lower = artifact.toLowerCase();
 
     const addFeature = (id: string, description: string, risk: number, evidence: string) => {
-        features[id] = {
+        signals.push(id);
+        features.push({
             id,
             tier: 'TIER_1_LOCAL',
             detected: true,
             riskContribution: risk,
             description,
             evidence: [evidence]
-        };
+        });
         score += risk;
     };
 
@@ -91,7 +88,6 @@ export function analyzeHeuristic(artifact: string, type: ArtifactType): Heuristi
         // High Entropy / DGA-like (simple heuristic: many numbers or long random looking string)
         const name = parts[0];
         if (name.length > 15 && /\d/.test(name)) {
-            // Count unique chars ratio or similar? Simplified for now.
              addFeature('high_entropy_domain', 'Domain label appears randomly generated (DGA-like)', 15, name);
         }
 
@@ -107,7 +103,6 @@ export function analyzeHeuristic(artifact: string, type: ArtifactType): Heuristi
              addFeature('suspicious_email_tld', 'Email domain uses high-risk TLD', 25, domain);
         }
         if (user.toLowerCase().includes('admin') || user.toLowerCase().includes('support') || user.toLowerCase().includes('security')) {
-            // Only risky if not a known good domain (hard to know without allowlist, so medium risk)
             addFeature('impersonation_risk', 'Email user part mimics authority figure', 15, user);
         }
     }
@@ -130,8 +125,15 @@ export function analyzeHeuristic(artifact: string, type: ArtifactType): Heuristi
         explanation = 'The artifact conforms to standard patterns and lacks specific risk indicators known to our heuristic engine.';
     }
 
-    // Explicit Labeling for Honesty
     explanation += ' (Analysis based on static pattern matching and heuristic rules).';
 
-    return { score, features, summary, explanation };
+    return {
+        name: 'heuristic',
+        confidence: 0.9,
+        score,
+        signals,
+        features,
+        summary,
+        explanation
+    };
 }

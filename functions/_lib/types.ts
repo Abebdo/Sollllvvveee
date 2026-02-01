@@ -65,6 +65,10 @@ export interface AnalysisResult {
   riskScore: number; // 0-100
   confidence: number; // 0.0-1.0
 
+  // New Explainability & Auditability
+  signals: string[]; // specific signals detected
+  why_it_matters: string[]; // context on importance
+
   summary: string;
 
   // Categorized intelligence
@@ -95,6 +99,16 @@ export interface FeatureResult {
   evidence: string[]; // Raw data supporting this finding
 }
 
+// --- Standard API Response ---
+
+export interface ApiResponse<T = any> {
+  ok: boolean;
+  error_code: string | null;
+  message: string;
+  data: T;
+  // Legacy fields might be merged at root level in actual response object
+}
+
 // --- Error Types ---
 
 export type ServiceError =
@@ -102,4 +116,7 @@ export type ServiceError =
   | 'RATE_LIMIT_EXCEEDED'
   | 'INTERNAL_ERROR'
   | 'UPSTREAM_TIMEOUT'
-  | 'UNSUPPORTED_ARTIFACT';
+  | 'UNSUPPORTED_ARTIFACT'
+  | 'E_VALIDATION_INVALID_INPUT'
+  | 'E_RATE_LIMIT_EXCEEDED'
+  | 'E_ENGINE_FAILURE';
