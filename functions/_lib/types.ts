@@ -1,11 +1,11 @@
 /**
  * Solveya Intelligence Platform - Core Domain Types
- * Phase 1: Foundation
+ * Phase 2: Production Hardening
  */
 
 export interface Env {
   AI: any;
-  ANALYSIS_CACHE: any;
+  ANALYSIS_CACHE: any; // KV Namespace
 }
 
 export type ArtifactType =
@@ -25,13 +25,10 @@ export type RiskVerdict =
   | 'BENIGN'
   | 'UNKNOWN';
 
-export type ConfidenceLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CERTAIN';
-
 export type IntelligenceTier =
-  | 'TIER_1_LOCAL'       // Offline heuristics
-  | 'TIER_2_PUBLIC_API'  // DNS, RDAP
-  | 'TIER_3_SIMULATED'   // Sandbox/Headless
-  | 'TIER_4_PLATFORM';   // AI/ML Inference
+  | 'TIER_1_LOCAL'       // Deterministic Heuristics
+  | 'TIER_2_PUBLIC_API'  // External Data (Reserved)
+  | 'TIER_4_PLATFORM';   // Advanced Inference (Reserved)
 
 // --- Request / Response Contract ---
 
@@ -68,7 +65,7 @@ export interface AnalysisResult {
   riskScore: number; // 0-100
   confidence: number; // 0.0-1.0
 
-  summary: string; // LLM generated summary
+  summary: string;
 
   // Categorized intelligence
   features: Record<string, FeatureResult>;
@@ -96,15 +93,6 @@ export interface FeatureResult {
   riskContribution: number; // -10 to +10 impact on score
   description: string;
   evidence: string[]; // Raw data supporting this finding
-}
-
-// --- Storage / Cache Schema ---
-
-export interface CachedAnalysis {
-  v: number; // schema version
-  created: number; // unix timestamp
-  expires: number; // unix timestamp
-  data: AnalysisResult;
 }
 
 // --- Error Types ---
