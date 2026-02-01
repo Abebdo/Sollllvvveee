@@ -1,5 +1,6 @@
 import { ArtifactType, FeatureResult } from '../types';
 import { EngineResult } from './types';
+import { CognitiveTraceStep } from '../cognitive_trace';
 
 function calculateEntropy(str: string): number {
     if (!str) return 0;
@@ -19,6 +20,7 @@ function calculateEntropy(str: string): number {
 export function analyzeStructure(artifact: string, type: ArtifactType): EngineResult {
     const features: FeatureResult[] = [];
     const signals: string[] = [];
+    const trace: CognitiveTraceStep[] = [];
     let score = 0;
 
     if (type === 'domain' || type === 'url') {
@@ -51,6 +53,15 @@ export function analyzeStructure(artifact: string, type: ArtifactType): EngineRe
                 description: 'High entropy domain structure (random characters)',
                 evidence: [`Entropy: ${entropy.toFixed(2)}`]
             });
+
+            trace.push({
+                engine: 'structure',
+                observation: `Entropy: ${entropy.toFixed(2)}`,
+                rationale: 'High entropy domain structure (random characters)',
+                impact: 20,
+                confidence: 0.85
+            });
+
             score += 20;
         }
 
@@ -66,6 +77,15 @@ export function analyzeStructure(artifact: string, type: ArtifactType): EngineRe
                 description: 'Excessive domain length',
                 evidence: [`Length: ${domain.length}`]
             });
+
+            trace.push({
+                engine: 'structure',
+                observation: `Length: ${domain.length}`,
+                rationale: 'Excessive domain length',
+                impact: 10,
+                confidence: 0.85
+            });
+
             score += 10;
         }
     }
@@ -81,6 +101,7 @@ export function analyzeStructure(artifact: string, type: ArtifactType): EngineRe
         confidence: 0.85, // Structural analysis is highly reliable
         score: Math.min(100, score),
         signals,
-        features
+        features,
+        trace
     };
 }

@@ -1,4 +1,5 @@
 import { FeatureResult } from '../types';
+import { CognitiveTraceStep } from '../cognitive_trace';
 
 export interface EngineResult {
   name: string;
@@ -8,4 +9,5 @@ export interface EngineResult {
   features: FeatureResult[]; // Detailed feature objects
   summary?: string;
   explanation?: string;
+  trace?: CognitiveTraceStep[];
 }
