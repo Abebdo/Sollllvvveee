@@ -32,14 +32,43 @@ export type IntelligenceTier =
 
 // --- Request / Response Contract ---
 
+export interface AnalysisContext {
+  source?: 'email' | 'web' | 'api' | 'redirect' | 'automation' | string;
+  timestamp?: string;
+  user_agent?: string;
+  origin_ip?: string;
+}
+
 export interface AnalysisRequest {
   artifact: string;
   forceRefresh?: boolean;
   correlationId?: string;
-  context?: {
-    source?: string;
-    timestamp?: string;
-  };
+  context?: AnalysisContext;
+}
+
+export interface ReasoningStep {
+  signal: string;
+  evidence: string;
+  threshold?: string;
+  impact: number;
+  why_it_matters: string;
+}
+
+export interface ReasoningGraph {
+  conclusion: string;
+  chain: ReasoningStep[];
+}
+
+export interface TemporalAnalysis {
+  last_score: number | null;
+  delta: number | null;
+  trend: 'improving' | 'degrading' | 'stable' | 'insufficient_data';
+  velocity?: number | null;
+}
+
+export interface ConfidenceProfile {
+  score: number; // 0-1
+  reasons: string[];
 }
 
 export interface AnalysisResponse {
@@ -63,7 +92,12 @@ export interface AnalysisResult {
   };
   verdict: RiskVerdict;
   riskScore: number; // 0-100
-  confidence: number; // 0.0-1.0
+  confidence: number; // 0.0-1.0 (Legacy, kept for compat)
+
+  // New Structured Fields
+  confidence_detail?: ConfidenceProfile;
+  reasoning?: ReasoningGraph;
+  temporal?: TemporalAnalysis;
 
   // New Explainability & Auditability
   signals: string[]; // specific signals detected
