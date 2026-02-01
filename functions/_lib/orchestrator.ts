@@ -2,11 +2,15 @@ import { Env, AnalysisRequest, AnalysisResult, RiskVerdict, FeatureResult, ApiRe
 import { validateInput, sanitizeInput, classifyArtifact } from './validation';
 import { RateLimiter } from './ratelimit';
 import { analyzeHeuristic, analyzeReputation, analyzeStructure, analyzeContext, EngineResult } from './engines';
+import { analyzeMeta } from './engines/meta.engine';
+import { performCounterfactualAnalysis } from './reasoning/counterfactual';
+import { consultMemory, updateMemory } from './memory/analytical_memory';
 import { AppError, ErrorCode, createErrorResponse } from './errors';
 import { analyzeTemporal } from './temporal';
 import { calculateConfidence } from './confidence';
 import { buildReasoningGraph } from './reasoning';
 import { CognitiveTraceStep } from './cognitive_trace';
+import { SelfCritique } from './types';
 
 export const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -122,19 +126,18 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         }
     }));
 
-    // Aggregation
+    // --- PHASE 1: Aggregation & Meta-Analysis ---
+
     let totalScore = 0;
     const aggregatedFeatures: Record<string, FeatureResult> = {};
     const signals: string[] = [];
     const whyItMatters: string[] = [];
     const executionDetails: any[] = [];
     const cognitiveTrace: CognitiveTraceStep[] = [];
-
-    // Collect valid engine results for confidence calculation
     const validEngineResults: EngineResult[] = [];
-
     let isSafeListed = false;
 
+    // Collect results
     for (const result of results) {
         if (result.status === 'fulfilled' && result.value) {
             const r = result.value as (EngineResult & { _meta: any });
@@ -145,18 +148,12 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
                 isSafeListed = true;
             }
 
-            // Merge features
-            if (r.features) {
-                r.features.forEach(f => {
-                    aggregatedFeatures[f.id] = f;
-                });
-            }
+            if (r.features) r.features.forEach(f => aggregatedFeatures[f.id] = f);
             if (r.signals) signals.push(...r.signals);
             if (r.trace) cognitiveTrace.push(...r.trace);
 
-            // Score Logic (Max score approach)
+            // Base scoring (Max approach)
             if (r.score > totalScore) totalScore = r.score;
-
             if (r.summary) whyItMatters.push(`${r.name}: ${r.summary}`);
         }
     }
@@ -166,30 +163,101 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         whyItMatters.unshift("Artifact is on a known safe list.");
     }
 
-    // Verdict
+    // Meta-Engine Execution
+    const metaAnalysis = analyzeMeta(validEngineResults);
+
+    // --- PHASE 2: Counterfactual Reasoning ---
+
+    const counterfactual = performCounterfactualAnalysis(validEngineResults, totalScore);
+
+    // --- PHASE 3: Analytical Memory & Temporal ---
+
+    // Consult memory
+    const memory = await consultMemory(env, artifact);
+
+    // Consult temporal (short-term cache diff)
+    const temporalAnalysis = await analyzeTemporal(env, cacheKey, totalScore);
+
+    // --- PHASE 4: Confidence Calibration ---
+
+    const baseConfidence = calculateConfidence(validEngineResults);
+    let finalConfidence = baseConfidence.score;
+    const uncertaintyFlags: string[] = [];
+
+    // Downgrade based on Meta-Analysis (Disagreement)
+    if (metaAnalysis.disagreement_level === 'medium') {
+        finalConfidence *= 0.85;
+        uncertaintyFlags.push('Moderate disagreement between analytical engines');
+    } else if (metaAnalysis.disagreement_level === 'high') {
+        finalConfidence *= 0.6;
+        uncertaintyFlags.push('High conflict between engines reduces certainty');
+    }
+
+    // Downgrade based on Sensitivity
+    if (counterfactual.sensitivity > 0.6) {
+        finalConfidence *= 0.9;
+        uncertaintyFlags.push('Result is highly sensitive to a single factor');
+    }
+
+    // Memory Influence
+    // If novel (never seen), slight uncertainty
+    if (memory.seen_count === 0) {
+        uncertaintyFlags.push('First time seeing this specific artifact pattern');
+    } else if (memory.volatility > 20) {
+        // If historically volatile, we are less sure about *this* specific score staying static
+        finalConfidence *= 0.95;
+        uncertaintyFlags.push('Artifact demonstrates volatile behavior historically');
+    }
+
+    // Update profile
+    baseConfidence.score = parseFloat(finalConfidence.toFixed(2));
+    baseConfidence.reasons.push(...uncertaintyFlags);
+
+    // Verdict Logic
     let verdict: RiskVerdict = 'UNKNOWN';
     if (totalScore > 80) verdict = 'MALICIOUS';
     else if (totalScore > 50) verdict = 'SUSPICIOUS';
     else verdict = 'BENIGN';
 
-    // 6. Enhanced Intelligence (Confidence, Temporal, Reasoning)
-    const confidenceProfile = calculateConfidence(validEngineResults);
     const reasoningGraph = buildReasoningGraph(aggregatedFeatures, verdict);
 
-    // Temporal (Async lookup, but we await it for response completeness in this design)
-    // Pass totalScore to compare with history
-    const temporalAnalysis = await analyzeTemporal(env, cacheKey, totalScore);
+    // --- PHASE 5: Self-Critique ---
 
+    const selfCritique: SelfCritique = {
+        assumptions_made: [
+            ...metaAnalysis.weak_assumptions,
+            `Assuming ${validEngineResults.length} engines cover relevant attack surfaces`
+        ],
+        what_might_be_wrong: [
+            ...counterfactual.fragile_assumptions.map(id => `Reliance on fragile signal '${id}'`),
+            metaAnalysis.disagreement_level === 'high' ? 'Engines provided contradictory evidence' : ''
+        ].filter(Boolean),
+        missing_information: []
+    };
 
-    // Construct Result
+    if (validEngineResults.length < 3) {
+        selfCritique.missing_information.push('Limited engine coverage available');
+    }
+    if (memory.seen_count === 0) {
+        selfCritique.missing_information.push('No historical context available for this artifact');
+    }
+
+    // --- Construct Final Result ---
+
     const analysisResult: AnalysisResult = {
         artifact: { raw: rawArtifact, type, canonical: artifact },
         verdict,
         riskScore: totalScore,
-        confidence: confidenceProfile.score,
+        confidence: baseConfidence.score, // Legacy field
 
-        // New Fields
-        confidence_detail: confidenceProfile,
+        // Phase 3 Meta-Intelligence Fields
+        confidence_level: baseConfidence.score,
+        stability_score: parseFloat((1 - counterfactual.sensitivity).toFixed(2)),
+        uncertainty_flags: uncertaintyFlags,
+        self_critique: selfCritique,
+
+        // Standard Fields
+        confidence_detail: baseConfidence,
         reasoning: reasoningGraph,
         temporal: temporalAnalysis,
         cognitive_trace: cognitiveTrace,
@@ -207,11 +275,16 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
             executionTimeMs: Date.now() - start,
             cached: false,
             tierUsed: ['TIER_1_LOCAL'],
-            modelVersion: 'v3.1.0-production'
+            modelVersion: 'v3.2.0-analyst'
         }
     };
 
-    // 7. Cache Storage
+    // --- PHASE 6: Persistence ---
+
+    // 1. Update Analytical Memory
+    await updateMemory(env, artifact, totalScore);
+
+    // 2. Cache Result
     try {
         await env.ANALYSIS_CACHE.put(cacheKey, JSON.stringify(analysisResult), { expirationTtl: 86400 });
     } catch (e) {
@@ -242,7 +315,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         duration: Date.now() - start,
         verdict,
         score: totalScore,
-        confidence: confidenceProfile.score,
+        confidence: baseConfidence.score,
         reasoning_conclusion: reasoningGraph.conclusion,
         engines: executionDetails
     }));

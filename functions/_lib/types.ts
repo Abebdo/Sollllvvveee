@@ -73,6 +73,27 @@ export interface ConfidenceProfile {
   reasons: string[];
 }
 
+// --- Meta Intelligence Types ---
+
+export interface MetaAnalysisResult {
+  consensus_score: number;
+  disagreement_level: 'low' | 'medium' | 'high';
+  dominant_engines: string[];
+  weak_assumptions: string[];
+}
+
+export interface CounterfactualResult {
+  sensitivity: number; // 0-1, how much the score changes when features are removed
+  critical_dependencies: string[]; // features that strongly drive the score
+  fragile_assumptions: string[]; // features that are high impact but low confidence
+}
+
+export interface SelfCritique {
+  assumptions_made: string[];
+  what_might_be_wrong: string[];
+  missing_information: string[];
+}
+
 export interface AnalysisResponse {
   id: string;
   timestamp: string;
@@ -101,6 +122,12 @@ export interface AnalysisResult {
   reasoning?: ReasoningGraph;
   temporal?: TemporalAnalysis;
   cognitive_trace?: CognitiveTraceStep[];
+
+  // Phase 3: Meta-Intelligence Fields
+  confidence_level?: number;       // How sure the system is (updated definition)
+  stability_score?: number;        // How stable the result is across scenarios
+  uncertainty_flags?: string[];    // Why doubt exists
+  self_critique?: SelfCritique;    // Mandatory self-reflection
 
   // New Explainability & Auditability
   signals: string[]; // specific signals detected
