@@ -3,6 +3,9 @@ import { validateInput, sanitizeInput, classifyArtifact } from './validation';
 import { RateLimiter } from './ratelimit';
 import { analyzeHeuristic, analyzeReputation, analyzeStructure, analyzeContext, EngineResult } from './engines';
 import { AppError, ErrorCode, createErrorResponse } from './errors';
+import { analyzeTemporal } from './temporal';
+import { calculateConfidence } from './confidence';
+import { buildReasoningGraph } from './reasoning';
 
 export const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -33,10 +36,6 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         }
     } catch (e) {
         if (e instanceof AppError) return createErrorResponse(e);
-        // If KV fails, we log and proceed (fail open) or fail closed.
-        // Prompt says "System Reliability" -> maybe fail open for KV errors?
-        // But logic is usually fail closed for security.
-        // Let's assume fail open if it's just KV error, but if it's rate limit error (AppError), we return 429.
         console.error('Rate limit check failed', e);
     }
 
@@ -64,9 +63,10 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     const artifact = sanitizeInput(rawArtifact);
     const type = classifyArtifact(artifact);
+    const context = body.context;
 
     // 4. Cache Lookup
-    const cacheKey = `v3:analysis:${type}:${encodeURIComponent(artifact)}`; // bumped version
+    const cacheKey = `v3:analysis:${type}:${encodeURIComponent(artifact)}`;
 
     if (!body.forceRefresh) {
         try {
@@ -106,7 +106,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     const enginePromises = [
         { name: 'reputation', fn: () => analyzeReputation(artifact, type) },
         { name: 'structure', fn: () => analyzeStructure(artifact, type) },
-        { name: 'context', fn: () => analyzeContext(artifact, type) },
+        { name: 'context', fn: () => analyzeContext(artifact, type, context) },
         { name: 'heuristic', fn: () => analyzeHeuristic(artifact, type) }
     ];
 
@@ -117,19 +117,19 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
             return { ...res, _meta: { name: e.name, duration: Date.now() - t0 } };
         } catch (err) {
             console.error(`Engine ${e.name} failed`, err);
-            // Graceful degradation: return null or error result
             return null;
         }
     }));
 
     // Aggregation
     let totalScore = 0;
-    let scoreCount = 0;
     const aggregatedFeatures: Record<string, FeatureResult> = {};
     const signals: string[] = [];
-    let maxConfidence = 0;
     const whyItMatters: string[] = [];
     const executionDetails: any[] = [];
+
+    // Collect valid engine results for confidence calculation
+    const validEngineResults: EngineResult[] = [];
 
     let isSafeListed = false;
 
@@ -137,6 +137,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         if (result.status === 'fulfilled' && result.value) {
             const r = result.value as (EngineResult & { _meta: any });
             executionDetails.push(r._meta);
+            validEngineResults.push(r);
 
             if (r.name === 'reputation' && r.confidence === 1.0 && r.score === 0) {
                 isSafeListed = true;
@@ -150,9 +151,8 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
             }
             if (r.signals) signals.push(...r.signals);
 
-            // Score Logic (Max score approach often better for security than average)
+            // Score Logic (Max score approach)
             if (r.score > totalScore) totalScore = r.score;
-            if (r.confidence > maxConfidence) maxConfidence = r.confidence;
 
             if (r.summary) whyItMatters.push(`${r.name}: ${r.summary}`);
         }
@@ -169,12 +169,27 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     else if (totalScore > 50) verdict = 'SUSPICIOUS';
     else verdict = 'BENIGN';
 
+    // 6. Enhanced Intelligence (Confidence, Temporal, Reasoning)
+    const confidenceProfile = calculateConfidence(validEngineResults);
+    const reasoningGraph = buildReasoningGraph(aggregatedFeatures, verdict);
+
+    // Temporal (Async lookup, but we await it for response completeness in this design)
+    // Pass totalScore to compare with history
+    const temporalAnalysis = await analyzeTemporal(env, cacheKey, totalScore);
+
+
     // Construct Result
     const analysisResult: AnalysisResult = {
         artifact: { raw: rawArtifact, type, canonical: artifact },
         verdict,
         riskScore: totalScore,
-        confidence: maxConfidence,
+        confidence: confidenceProfile.score,
+
+        // New Fields
+        confidence_detail: confidenceProfile,
+        reasoning: reasoningGraph,
+        temporal: temporalAnalysis,
+
         signals: Array.from(new Set(signals)),
         why_it_matters: whyItMatters,
         summary: whyItMatters[0] || 'No significant indicators found.',
@@ -188,19 +203,18 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
             executionTimeMs: Date.now() - start,
             cached: false,
             tierUsed: ['TIER_1_LOCAL'],
-            modelVersion: 'v3.0.0-multi-engine'
+            modelVersion: 'v3.1.0-production'
         }
     };
 
-    // 6. Cache Storage
-    // Store simple version in cache
+    // 7. Cache Storage
     try {
         await env.ANALYSIS_CACHE.put(cacheKey, JSON.stringify(analysisResult), { expirationTtl: 86400 });
     } catch (e) {
         console.error('Cache write failed', e);
     }
 
-    // 7. Response Construction
+    // 8. Response Construction
     const resultId = crypto.randomUUID();
     const responseData: ApiResponse<AnalysisResult> = {
         ok: true,
@@ -217,13 +231,15 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         result: analysisResult
     };
 
-    // Logging (Silent Observability)
+    // Logging (Structured Audit)
     console.log(JSON.stringify({
         event: 'analysis_completed',
         id: resultId,
         duration: Date.now() - start,
         verdict,
         score: totalScore,
+        confidence: confidenceProfile.score,
+        reasoning_conclusion: reasoningGraph.conclusion,
         engines: executionDetails
     }));
 
