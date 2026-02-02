@@ -1,28 +1,17 @@
-import type { PagesFunction } from '@cloudflare/workers-types';
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type"
-};
+import { PagesFunction } from '@cloudflare/workers-types';
+import { Env } from '../../_lib/types';
+import { handleAnalysisRequest } from '../../_lib/orchestrator';
 
 export const onRequestOptions: PagesFunction = async () => {
-  return new Response(null, { headers: corsHeaders });
+    return new Response(null, {
+        headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        }
+    });
 };
 
-export const onRequestPost: PagesFunction = async () => {
-  return new Response(JSON.stringify({
-    verdict: "PENDING",
-    confidence: {
-      mostLikely: 50,
-      range: { min: 40, max: 60 },
-      uncertainty: "HIGH"
-    },
-    reason: "Analysis engine initializing"
-  }), {
-    headers: {
-      ...corsHeaders,
-      "Content-Type": "application/json"
-    }
-  });
+export const onRequestPost: PagesFunction<Env> = async (context) => {
+    return handleAnalysisRequest(context.request, context.env);
 };

@@ -32,6 +32,38 @@ import { generateAnalystExplanation } from './explanation/human_explanation';
 import { expandUrl } from './analysis/url_expansion';
 import { buildEpistemicProfile } from './analysis/epistemic_profile';
 
+// --- ENGINE BOOTSTRAP & INITIALIZATION ---
+function bootstrapEngines() {
+    const engines = {
+        'Heuristic Engine': analyzeHeuristic,
+        'Reputation Engine': analyzeReputation,
+        'Structure Engine': analyzeStructure,
+        'Context Engine': analyzeContext,
+        'Baseline Engine': analyzeBaseline,
+        'Meta-Judgment Engine': analyzeMetaJudgment,
+        'Root Trust Engine': analyzeRootTrust,
+        'Semantic Engine': analyzeSemantic,
+        'Fragility Engine': analyzeFragility,
+        'Conflict Resolution Engine': analyzeConflict,
+        'Explanation Engine': generateAnalystExplanation,
+        'Confidence Engine': calculateConfidence,
+        'Contextual Verdict Engine': applyContextualVerdict
+    };
+
+    for (const [name, engine] of Object.entries(engines)) {
+        if (!engine) {
+             const msg = `[BOOT][FATAL] Engine ${name} failed to initialize`;
+             console.error(msg);
+             throw new Error(msg);
+        }
+        console.log(`[BOOT] ${name}: READY`);
+    }
+    console.log("[BOOT] All Engines: READY");
+}
+
+// Force initialization at module load time (Fail Fast)
+bootstrapEngines();
+
 export const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -51,13 +83,10 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     console.log(`[Analysis] Request received: ${request.method} ${request.url}`);
     console.log(`[Analysis] Timestamp: ${timestamp}`);
 
-    // Internal Self-Test
+    // Internal Self-Test & Env Validation
     if (!env.ANALYSIS_CACHE) {
         console.error("CRITICAL: ANALYSIS_CACHE binding missing");
-        return new Response(JSON.stringify({
-            error: "ENGINE_UNAVAILABLE",
-            reason: "Backend not initialized / dependency failure"
-        }), { status: 503, headers: corsHeaders });
+        throw new Error("Missing ENV: ANALYSIS_CACHE");
     }
 
     let rlStatus: any;
