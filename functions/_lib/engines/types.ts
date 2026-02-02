@@ -10,4 +10,8 @@ export interface EngineResult {
   summary?: string;
   explanation?: string;
   trace?: CognitiveTraceStep[];
+
+  // Phase 4: Baseline Engine Fields
+  deviation_score?: number; // 0-100, how much it deviates from expected baseline
+  deviation_reasoning?: string;
 }

@@ -1,8 +1,16 @@
 import { Env, AnalysisRequest, AnalysisResult, RiskVerdict, FeatureResult, ApiResponse } from './types';
 import { validateInput, sanitizeInput, classifyArtifact } from './validation';
 import { RateLimiter } from './ratelimit';
-import { analyzeHeuristic, analyzeReputation, analyzeStructure, analyzeContext, EngineResult } from './engines';
-import { analyzeMeta } from './engines/meta.engine';
+import {
+    analyzeHeuristic,
+    analyzeReputation,
+    analyzeStructure,
+    analyzeContext,
+    analyzeBaseline,
+    analyzeMetaJudgment,
+    analyzeConfidenceFragility,
+    EngineResult
+} from './engines';
 import { performCounterfactualAnalysis } from './reasoning/counterfactual';
 import { consultMemory, updateMemory } from './memory/analytical_memory';
 import { AppError, ErrorCode, createErrorResponse } from './errors';
@@ -71,7 +79,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     const context = body.context;
 
     // 4. Cache Lookup
-    const cacheKey = `v3:analysis:${type}:${encodeURIComponent(artifact)}`;
+    const cacheKey = `v4:analysis:${type}:${encodeURIComponent(artifact)}`; // Version bumped to v4
 
     if (!body.forceRefresh) {
         try {
@@ -108,11 +116,13 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     }
 
     // 5. Analysis Execution (Multi-Engine)
+    // "Mandatory Logic Order" executed in parallel for performance, but aggregated logically
     const enginePromises = [
         { name: 'reputation', fn: () => analyzeReputation(artifact, type) },
         { name: 'structure', fn: () => analyzeStructure(artifact, type) },
         { name: 'context', fn: () => analyzeContext(artifact, type, context) },
-        { name: 'heuristic', fn: () => analyzeHeuristic(artifact, type) }
+        { name: 'heuristic', fn: () => analyzeHeuristic(artifact, type) },
+        { name: 'baseline', fn: () => analyzeBaseline(artifact, type) } // New Engine
     ];
 
     const results = await Promise.allSettled(enginePromises.map(async (e) => {
@@ -126,7 +136,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         }
     }));
 
-    // --- PHASE 1: Aggregation & Meta-Analysis ---
+    // --- PHASE 1: Aggregation ---
 
     let totalScore = 0;
     const aggregatedFeatures: Record<string, FeatureResult> = {};
@@ -135,7 +145,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     const executionDetails: any[] = [];
     const cognitiveTrace: CognitiveTraceStep[] = [];
     const validEngineResults: EngineResult[] = [];
-    let isSafeListed = false;
+    let isAllowListed = false;
 
     // Collect results
     for (const result of results) {
@@ -145,7 +155,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
             validEngineResults.push(r);
 
             if (r.name === 'reputation' && r.confidence === 1.0 && r.score === 0) {
-                isSafeListed = true;
+                isAllowListed = true;
             }
 
             if (r.features) r.features.forEach(f => aggregatedFeatures[f.id] = f);
@@ -153,21 +163,36 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
             if (r.trace) cognitiveTrace.push(...r.trace);
 
             // Base scoring (Max approach)
+            // DECOUPLING: Even if allowlisted, we track the max score.
+            // We do NOT reset totalScore to 0 here.
             if (r.score > totalScore) totalScore = r.score;
             if (r.summary) whyItMatters.push(`${r.name}: ${r.summary}`);
+            if (r.name === 'baseline' && r.deviation_reasoning) whyItMatters.push(`Baseline: ${r.deviation_reasoning}`);
         }
     }
 
-    if (isSafeListed) {
-        totalScore = 0;
+    // If on allowlist, we initially consider it safe, BUT...
+    // The "Intent vs Reputation Decoupling" rule:
+    // "Modify engines so reputation can NEVER fully neutralize intent-based risk"
+    // So if totalScore is high (e.g. baseline found anomaly), we KEEP the high score.
+    // If totalScore is low, and isAllowListed, it remains low.
+
+    // However, if it IS allowlisted, we might want to mention it.
+    if (isAllowListed && totalScore < 10) {
         whyItMatters.unshift("Artifact is on a known safe list.");
+    } else if (isAllowListed && totalScore >= 50) {
+         whyItMatters.unshift("Artifact is on a known safe list, BUT abnormal behavior was detected.");
     }
 
-    // Meta-Engine Execution
-    const metaAnalysis = analyzeMeta(validEngineResults);
+    // --- PHASE 2: Meta-Judgment & Fragility ---
 
-    // --- PHASE 2: Counterfactual Reasoning ---
+    // New Meta-Judgment Engine
+    const metaJudgment = analyzeMetaJudgment(validEngineResults);
 
+    // Confidence Fragility Engine
+    const fragility = analyzeConfidenceFragility(validEngineResults, totalScore);
+
+    // Counterfactual (Legacy/Detail) - keep for compatibility and detailed reasoning
     const counterfactual = performCounterfactualAnalysis(validEngineResults, totalScore);
 
     // --- PHASE 3: Analytical Memory & Temporal ---
@@ -180,38 +205,30 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     // --- PHASE 4: Confidence Calibration ---
 
-    const baseConfidence = calculateConfidence(validEngineResults);
-    let finalConfidence = baseConfidence.score;
+    // Start with base confidence
+    let finalConfidence = calculateConfidence(validEngineResults).score;
     const uncertaintyFlags: string[] = [];
 
-    // Downgrade based on Meta-Analysis (Disagreement)
-    if (metaAnalysis.disagreement_level === 'medium') {
-        finalConfidence *= 0.85;
-        uncertaintyFlags.push('Moderate disagreement between analytical engines');
-    } else if (metaAnalysis.disagreement_level === 'high') {
-        finalConfidence *= 0.6;
-        uncertaintyFlags.push('High conflict between engines reduces certainty');
-    }
+    // Apply Meta-Judgment Adjustments
+    finalConfidence *= metaJudgment.confidence_adjustment;
+    uncertaintyFlags.push(...metaJudgment.contradictions);
 
-    // Downgrade based on Sensitivity
-    if (counterfactual.sensitivity > 0.6) {
-        finalConfidence *= 0.9;
-        uncertaintyFlags.push('Result is highly sensitive to a single factor');
+    // Apply Fragility Adjustments
+    if (fragility.stability_score < 0.5) {
+        finalConfidence *= 0.8;
+        uncertaintyFlags.push('Verdict stability is low; highly dependent on specific assumptions.');
     }
 
     // Memory Influence
-    // If novel (never seen), slight uncertainty
     if (memory.seen_count === 0) {
         uncertaintyFlags.push('First time seeing this specific artifact pattern');
     } else if (memory.volatility > 20) {
-        // If historically volatile, we are less sure about *this* specific score staying static
         finalConfidence *= 0.95;
         uncertaintyFlags.push('Artifact demonstrates volatile behavior historically');
     }
 
-    // Update profile
-    baseConfidence.score = parseFloat(finalConfidence.toFixed(2));
-    baseConfidence.reasons.push(...uncertaintyFlags);
+    // Final Clamp
+    finalConfidence = Math.max(0.1, Math.min(1.0, parseFloat(finalConfidence.toFixed(2))));
 
     // Verdict Logic
     let verdict: RiskVerdict = 'UNKNOWN';
@@ -221,17 +238,17 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     const reasoningGraph = buildReasoningGraph(aggregatedFeatures, verdict);
 
-    // --- PHASE 5: Self-Critique ---
+    // --- PHASE 5: Self-Critique & Output Construction ---
 
     const selfCritique: SelfCritique = {
         assumptions_made: [
-            ...metaAnalysis.weak_assumptions,
+            ...metaJudgment.judgment_notes,
             `Assuming ${validEngineResults.length} engines cover relevant attack surfaces`
         ],
         what_might_be_wrong: [
-            ...counterfactual.fragile_assumptions.map(id => `Reliance on fragile signal '${id}'`),
-            metaAnalysis.disagreement_level === 'high' ? 'Engines provided contradictory evidence' : ''
-        ].filter(Boolean),
+            ...fragility.fragility_reasons,
+            ...metaJudgment.contradictions
+        ],
         missing_information: []
     };
 
@@ -242,22 +259,31 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         selfCritique.missing_information.push('No historical context available for this artifact');
     }
 
-    // --- Construct Final Result ---
+    // Construct Analysis Quality
+    const confidenceLevel = finalConfidence > 0.8 ? 'high' : (finalConfidence > 0.5 ? 'medium' : 'low');
 
     const analysisResult: AnalysisResult = {
         artifact: { raw: rawArtifact, type, canonical: artifact },
         verdict,
         riskScore: totalScore,
-        confidence: baseConfidence.score, // Legacy field
+        confidence: finalConfidence, // Legacy field
 
         // Phase 3 Meta-Intelligence Fields
-        confidence_level: baseConfidence.score,
-        stability_score: parseFloat((1 - counterfactual.sensitivity).toFixed(2)),
+        confidence_level: finalConfidence,
+        stability_score: fragility.stability_score,
         uncertainty_flags: uncertaintyFlags,
         self_critique: selfCritique,
 
+        // Phase 4: Epistemic Intelligence
+        analysis_quality: {
+            confidence_level: confidenceLevel,
+            stability_score: fragility.stability_score,
+            anomaly_flags: metaJudgment.contradictions,
+            judgment_notes: metaJudgment.judgment_notes
+        },
+
         // Standard Fields
-        confidence_detail: baseConfidence,
+        confidence_detail: { score: finalConfidence, reasons: uncertaintyFlags },
         reasoning: reasoningGraph,
         temporal: temporalAnalysis,
         cognitive_trace: cognitiveTrace,
@@ -274,8 +300,8 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         meta: {
             executionTimeMs: Date.now() - start,
             cached: false,
-            tierUsed: ['TIER_1_LOCAL'],
-            modelVersion: 'v3.2.0-analyst'
+            tierUsed: ['TIER_1_LOCAL', 'TIER_4_PLATFORM'],
+            modelVersion: 'v4.0.0-intel'
         }
     };
 
@@ -315,9 +341,10 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         duration: Date.now() - start,
         verdict,
         score: totalScore,
-        confidence: baseConfidence.score,
+        confidence: finalConfidence,
         reasoning_conclusion: reasoningGraph.conclusion,
-        engines: executionDetails
+        engines: executionDetails,
+        meta_judgment: metaJudgment
     }));
 
     return new Response(JSON.stringify(mixedResponse), {
