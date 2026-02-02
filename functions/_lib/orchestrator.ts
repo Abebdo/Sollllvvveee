@@ -19,7 +19,7 @@ import { applyContextualVerdict, generateContextualVerdicts, checkContextDiverge
 
 import { consultMemory, updateMemory, consultCampaignMemory, updateCampaignMemory } from './memory/analytical_memory';
 import { analyzeBehavioralTimeline } from './analysis/behavioral_timeline';
-import { analyzeInfrastructure } from './analysis/infrastructure_intel.ts';
+import { analyzeInfrastructure } from './analysis/infrastructure_intel';
 import { analyzeCampaignCorrelation, generateCampaignFingerprint } from './analysis/campaign_correlation';
 
 import { AppError, ErrorCode, createErrorResponse } from './errors';
@@ -143,7 +143,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     // 5. Analysis Execution (Multi-Engine)
     // PHASE 4: Engine Gating Enforcement
-    const enginePromises = [
+    const enginePromises: Array<{ name: string; fn: () => any }> = [
         { name: 'reputation', fn: () => analyzeReputation(artifact, type) },
         { name: 'structure', fn: () => analyzeStructure(artifact, type) },
     ];

@@ -209,6 +209,34 @@ export interface AnalysisResponse {
   };
 }
 
+// --- Sub-Engine Results (Deep Intel) ---
+
+export interface BehavioralTimelineResult {
+    behavioral_drift: 'NONE' | 'LOW' | 'HIGH';
+    timeline_confidence_penalty: number;
+    history_summary: string;
+}
+
+export interface InfrastructureIntelResult {
+    infrastructure_risk_score: number;
+    trusted_infra_abuse: boolean;
+    provider_name: string;
+    abuse_type?: string;
+}
+
+export interface CampaignMemoryResult {
+    campaign_id: string | null;
+    related_count: number;
+    confidence: number;
+}
+
+export interface CampaignCorrelationResult {
+    campaign_id?: string;
+    campaign_confidence: number;
+    related_artifacts_count: number;
+    campaign_name?: string;
+}
+
 // --- Analysis Result Structure ---
 
 export interface AnalysisResult {

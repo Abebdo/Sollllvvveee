@@ -90,7 +90,7 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
     if (sourceDiversity < 0.3) {
         adjustment *= 0.8;
         warnings.push('Low source diversity: verdict relies on too few engines.');
-        if (fragility_level !== 'HIGH') fragility_level = 'MEDIUM';
+        if (fragility_level === 'LOW') fragility_level = 'MEDIUM';
     }
 
     // Rule: Agreement Illusion (High confidence but high disagreement)

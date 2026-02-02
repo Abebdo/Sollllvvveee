@@ -1,9 +1,11 @@
 import { EngineResult } from './types';
 import { ArtifactType, DomainTrustVerdict } from '../types';
-import { isRealityAnchor, getProviderRole, isGlobalInfraProvider } from './world_model';
+import { isRealityAnchor, getProviderRole, isGlobalInfraProvider, GLOBAL_HUMAN_TRUST_SET } from './world_model';
 
-// Re-exporting for backward compatibility if needed, but WorldModel is now the source of truth
+// Re-exporting for backward compatibility
 export { isRealityAnchor as isRootTrusted } from './world_model';
+// Exporting GLOBAL_HUMAN_TRUST_SET as ROOT_TRUSTED_DOMAINS for backward compatibility
+export { GLOBAL_HUMAN_TRUST_SET as ROOT_TRUSTED_DOMAINS } from './world_model';
 
 export async function analyzeRootTrust(artifact: string, type: ArtifactType): Promise<{
     is_trusted: boolean;
