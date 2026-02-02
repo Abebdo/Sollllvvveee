@@ -105,7 +105,9 @@ export class RiskEngine {
                 confidence_percentage: confidenceRange ? Number((confidenceRange.mostLikely * 100).toFixed(0)) : Number((result.confidence || 0.8) * 100).toFixed(0) as unknown as number,
                 confidence_range: confidenceRange ? {
                     min: Number((confidenceRange.min * 100).toFixed(0)),
-                    max: Number((confidenceRange.max * 100).toFixed(0))
+                    max: Number((confidenceRange.max * 100).toFixed(0)),
+                    mostLikely: Number((confidenceRange.mostLikely * 100).toFixed(0)),
+                    uncertainty: confidenceRange.uncertainty
                 } : undefined,
                 known_unknowns: result.uncertainty_flags || ["External threat intel feeds limited in Dev Mode"],
                 suggested_verification: result.explanation.recommendedActions || []

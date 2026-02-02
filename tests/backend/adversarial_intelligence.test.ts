@@ -127,7 +127,7 @@ describe('Final Intelligence Calibration & Analyst-Grade Hardening', () => {
                      ok: true,
                      status: 200,
                      url: 'https://evil.com/login',
-                     text: async () => '<html><input type="password"></html>', // Phishing
+                     text: async () => '<html><form><input type="password"></form></html>', // Phishing
                      headers: new Map()
                  };
              }
@@ -181,7 +181,8 @@ describe('Final Intelligence Calibration & Analyst-Grade Hardening', () => {
         const range = result.confidence_range;
         expect(range.min).toBeLessThan(range.mostLikely);
         expect(range.max).toBeGreaterThan(range.mostLikely);
-        expect(range.uncertainty).toBeGreaterThan(0.1);
+        // Expect string uncertainty
+        expect(['MEDIUM', 'HIGH']).toContain(range.uncertainty);
     });
 
     // 8. 100% Confidence Forbidden

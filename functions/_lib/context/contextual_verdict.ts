@@ -16,7 +16,7 @@ export function applyContextualVerdict(
     const source = contextSource.toLowerCase();
 
     // Rule: Email context is high risk for unexpected links
-    if (source === 'email') {
+    if (source.includes('email')) {
         if (originalVerdict === 'BENIGN') {
             result.adjusted_verdict = 'SUSPICIOUS';
             result.context_downgrade = true;
@@ -25,12 +25,8 @@ export function applyContextualVerdict(
     }
 
     // Rule: URL Shortener context
-    // Often used to obfuscate
-    if (source === 'url_shortener' || source === 'shortener') {
+    if (source.includes('shortener') || source.includes('bit.ly') || source.includes('tinyurl')) {
         if (originalVerdict === 'BENIGN') {
-             // Maybe not full suspicious, but if we have ANY doubt?
-             // Directive example only mentioned Email, but listed url_shortener as mandatory context.
-             // Let's be cautious.
              result.adjusted_verdict = 'SUSPICIOUS';
              result.context_downgrade = true;
              result.context_notes.push('Downgraded to Suspicious due to URL Shortener context (obfuscation risk)');
@@ -38,16 +34,33 @@ export function applyContextualVerdict(
     }
 
     // Rule: Redirect chain
-    if (source === 'redirect') {
-        // If it was a redirect, and it's benign, it might be okay.
-        // But if it's unknown/suspicious, maybe upgrade?
-        // Let's stick to downgrading Benign if applicable.
-        // Redirects are common. Unless deep chain.
-        // Let's leave it unless directive specified.
-        // "Mandatory contexts: ... redirect".
-        // I will just add a note if it's suspicious.
+    if (source.includes('redirect')) {
         if (originalVerdict === 'SUSPICIOUS') {
-            result.context_notes.push('Redirect context reinforces Suspicious verdict');
+            result.context_notes.push('Redirect chain reinforces Suspicious verdict');
+        } else if (originalVerdict === 'BENIGN' && source.includes('multiple_redirects')) {
+            // If it's a long chain, downgrade
+            result.adjusted_verdict = 'SUSPICIOUS';
+            result.context_downgrade = true;
+            result.context_notes.push('Downgraded to Suspicious due to multiple redirects (evasion risk)');
+        }
+    }
+
+    // Rule: Embedded Credential Context
+    if (source.includes('credential') || source.includes('login')) {
+         if (originalVerdict === 'BENIGN') {
+            result.adjusted_verdict = 'SUSPICIOUS';
+            result.context_downgrade = true;
+            result.context_notes.push('Downgraded to Suspicious due to credential context');
+         }
+         // If malicious intent was detected elsewhere, this context reinforces it.
+    }
+
+    // Rule: Social Engineering Indicators
+    if (source.includes('social_engineering') || source.includes('urgency') || source.includes('sms')) {
+        if (originalVerdict === 'BENIGN') {
+            result.adjusted_verdict = 'SUSPICIOUS';
+            result.context_downgrade = true;
+            result.context_notes.push('Downgraded due to social engineering indicators in context');
         }
     }
 

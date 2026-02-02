@@ -77,7 +77,7 @@ export interface ConfidenceRange {
   min: number;
   mostLikely: number;
   max: number;
-  uncertainty: number; // max - min
+  uncertainty: 'LOW' | 'MEDIUM' | 'HIGH';
 }
 
 export interface RiskTimelineStage {
@@ -94,6 +94,12 @@ export interface MetaJudgmentResult {
   fragility_level: 'LOW' | 'MEDIUM' | 'HIGH';
   confidence_adjustment: number;   // multiplier
   warnings?: string[];
+
+  // Phase 1 Extensions
+  engine_count: number;
+  engine_family_diversity: number; // 0.0 - 1.0 (Static, Heuristic, Semantic, Reputation)
+  agreement_ratio: number;
+
   // Legacy/Compat fields
   consensus_score?: number;
   disagreement_level?: 'low' | 'medium' | 'high';
