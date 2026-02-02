@@ -1,48 +1,32 @@
 import { Env } from '../_lib/types';
-import type { PagesFunction } from '@cloudflare/workers-types';
-
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-
-// We use explicit specific types to match the environment better or use simple ReturnType
-export const onRequestOptions: PagesFunction = async () => {
-  return new Response(null, { headers: corsHeaders }) as any;
-};
+import { corsHeaders } from '../_lib/orchestrator';
 
 export const onRequestGet: PagesFunction<Env> = async (context) => {
-    const checks: string[] = [];
-    let status = 'ok';
+  const { env } = context;
 
-    // Check Bindings
-    if (!context.env.ANALYSIS_CACHE) {
-        checks.push('ANALYSIS_CACHE missing');
-        status = 'degraded';
+  const status = {
+    status: 'alive',
+    service: 'solveya-backend',
+    env: 'production',
+    timestamp: new Date().toISOString(),
+    checks: {
+      kv: false
     }
-    if (!context.env.AI) {
-        checks.push('AI binding missing');
-        // AI is technically optional for Tier 1, so maybe just warning
-    }
+  };
 
-    // Attempt a KV read (even if key missing, just to test connection)
-    if (context.env.ANALYSIS_CACHE) {
-        try {
-            await context.env.ANALYSIS_CACHE.get('health_check');
-        } catch (e) {
-            // Safely handle unknown error type
-            const errorMessage = e instanceof Error ? e.message : String(e);
-            checks.push(`KV access failed: ${errorMessage}`);
-            status = 'error';
-        }
+  if (env.ANALYSIS_CACHE) {
+    try {
+      await env.ANALYSIS_CACHE.list({ limit: 1 });
+      status.checks.kv = true;
+    } catch (e) {
+      console.error('Health KV check failed', e);
+      status.status = 'degraded';
     }
+  } else {
+    status.status = 'misconfigured';
+  }
 
-    return new Response(JSON.stringify({
-        status: status,
-        engine: "solveya-analysis",
-        version: "2.0.0",
-        // Adding extra debug info in a way that doesn't break the contract
-        _diagnostics: checks.length > 0 ? checks : undefined
-    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }) as any;
+  return new Response(JSON.stringify(status), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders }
+  });
 };
