@@ -1,14 +1,15 @@
-// Remove dependency on orchestrator to prevent build coupling
+import { Env } from '../_lib/types';
+import type { PagesFunction } from '@cloudflare/workers-types';
+
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
-import { Env } from '../_lib/types';
-
+// We use explicit specific types to match the environment better or use simple ReturnType
 export const onRequestOptions: PagesFunction = async () => {
-  return new Response(null, { headers: corsHeaders });
+  return new Response(null, { headers: corsHeaders }) as any;
 };
 
 export const onRequestGet: PagesFunction<Env> = async (context) => {
@@ -43,5 +44,5 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         version: "2.0.0",
         // Adding extra debug info in a way that doesn't break the contract
         _diagnostics: checks.length > 0 ? checks : undefined
-    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }) as any;
 };
