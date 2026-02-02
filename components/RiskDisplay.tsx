@@ -15,7 +15,7 @@ interface RiskDisplayProps {
 
 export const RiskDisplay: React.FC<RiskDisplayProps> = ({ assessment, onReset }) => {
   // 1. FAIL-SAFE STATE: Backend Unavailable
-  if (assessment.status === 'NO_ANALYSIS') {
+  if (assessment.status === 'NO_ANALYSIS' || assessment.status === 'ERROR') {
      return (
         <div className="w-full max-w-5xl mx-auto pb-20 animate-slide-up">
           <Card variant="elevated" padding="lg" className="relative overflow-hidden border-slate-700 bg-slate-900/50">

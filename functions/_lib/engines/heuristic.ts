@@ -65,25 +65,21 @@ export function analyzeHeuristic(artifact: string, type: ArtifactType): EngineRe
         // Extract domain
         let domain = artifact;
         if (type === 'url') {
-            try {
-                const url = new URL(artifact);
-                domain = url.hostname;
+            // STRICT: Crash on invalid URL if classified as URL
+            const url = new URL(artifact);
+            domain = url.hostname;
 
-                // IP Host Check
-                if (/^\d+\.\d+\.\d+\.\d+$/.test(domain)) {
-                     addFeature('ip_host', 'URL uses raw IP address instead of domain', 40, domain);
-                }
+            // IP Host Check
+            if (/^\d+\.\d+\.\d+\.\d+$/.test(domain)) {
+                    addFeature('ip_host', 'URL uses raw IP address instead of domain', 40, domain);
+            }
 
-                // Suspicious Path/Query
-                if (url.pathname.length > 50 || url.search.length > 50) {
-                     addFeature('long_path', 'Suspiciously long URL path or query', 10, 'Length > 50');
-                }
-                if (url.username || url.password) {
-                     addFeature('embedded_auth', 'URL contains embedded authentication credentials', 85, 'user:pass@host');
-                }
-
-            } catch (e) {
-                // Invalid URL
+            // Suspicious Path/Query
+            if (url.pathname.length > 50 || url.search.length > 50) {
+                    addFeature('long_path', 'Suspiciously long URL path or query', 10, 'Length > 50');
+            }
+            if (url.username || url.password) {
+                    addFeature('embedded_auth', 'URL contains embedded authentication credentials', 85, 'user:pass@host');
             }
         }
 

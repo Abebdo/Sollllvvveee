@@ -30,7 +30,6 @@ export function buildReasoningGraph(
   let conclusion = "Safe Artifact";
   if (verdict === 'MALICIOUS') conclusion = "High Risk Artifact";
   else if (verdict === 'SUSPICIOUS') conclusion = "Suspicious Artifact";
-  else if (verdict === 'UNKNOWN') conclusion = "Insufficient Data";
 
   return {
     conclusion,

@@ -95,6 +95,14 @@ export class RiskEngine {
         const json = await response.json() as any;
         const data = json.data || json; // Handle wrapped or unwrapped response
 
+        // STRICT VALIDATION: Ensure backend returned a valid result
+        if (!data.verdict || data.verdict === 'UNKNOWN') {
+             throw new Error("Backend returned invalid or missing verdict");
+        }
+        if (!data.confidence) {
+             throw new Error("Backend returned invalid or missing confidence");
+        }
+
         // Map Backend AnalysisResult to Frontend RiskAssessment
         let risk_level: RiskLevel = 'Medium';
         if (data.verdict === 'MALICIOUS') risk_level = 'High';

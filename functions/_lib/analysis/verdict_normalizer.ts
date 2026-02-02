@@ -26,8 +26,8 @@ export function normalizeVerdict(result: AnalysisResult, artifactClass: Artifact
         if (result.confidence_detail) {
             result.confidence_detail.reasons = [];
             // We set high confidence because we are sure it's infrastructure
-            result.confidence_detail.score = 1.0;
-            result.confidence = 1.0;
+            result.confidence_detail.score = 0.99; // 1.0 Forbidden
+            result.confidence = 0.99;
         }
 
         // Suppress credential intent

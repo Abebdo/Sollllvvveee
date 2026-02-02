@@ -20,25 +20,16 @@ export async function analyzeRootTrust(artifact: string, type: ArtifactType): Pr
     let hostname = artifact;
 
     if (type === 'domain' || type === 'url') {
-        try {
-            if (type === 'url') {
-                try {
-                    const url = new URL(artifact);
-                    hostname = url.hostname;
-                } catch (e) {
-                    hostname = artifact.split('/')[0];
-                }
-            } else {
-                 hostname = artifact.replace(/^https?:\/\//, '').split('/')[0];
-            }
-
-            isTrusted = isRealityAnchor(hostname);
-            role = getProviderRole(hostname);
-            isInfra = isGlobalInfraProvider(hostname);
-
-        } catch (e) {
-            console.warn('Root trust analysis failed to parse artifact', e);
+        if (type === 'url') {
+            const url = new URL(artifact);
+            hostname = url.hostname;
+        } else {
+                hostname = artifact.replace(/^https?:\/\//, '').split('/')[0];
         }
+
+        isTrusted = isRealityAnchor(hostname);
+        role = getProviderRole(hostname);
+        isInfra = isGlobalInfraProvider(hostname);
     }
 
     // DIRECTIVE: Confidence ≥ 85%, but NO 100%.
