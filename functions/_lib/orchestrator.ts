@@ -136,9 +136,10 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         }
     }
 
-    // 4.5 Root Trust (Pre-computation)
+    // 4.5 Root Trust (Pre-computation) & World Model Access
     const rootTrust = await analyzeRootTrust(artifact, type);
-    const isRootTrusted = rootTrust.is_trusted;
+    const isRootTrusted = rootTrust.is_trusted; // Now backed by World Model
+    const realityRole = rootTrust.role;
 
     // 5. Analysis Execution (Multi-Engine)
     // PHASE 4: Engine Gating Enforcement
@@ -208,7 +209,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     }
 
     if (isRootTrusted) {
-        whyItMatters.unshift("Domain is ROOT TRUSTED infrastructure (Immunity Active).");
+        whyItMatters.unshift(`Domain is a verified Reality Anchor (${realityRole}). Immunity Active.`);
     } else if (isAllowListed && totalScore < 10) {
         whyItMatters.unshift("Artifact is on a known safe list.");
     } else if (isAllowListed && totalScore >= 50) {
@@ -225,10 +226,9 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     const metaJudgment = analyzeMetaJudgment(validEngineResults);
     const fragility = analyzeFragility(validEngineResults);
 
-    // Apply Conflict Adjustments to Score
+    // Engine 24 — Signal Hierarchy (Enforced Conflict Resolution)
+    // 1. Observed Malicious > 2. Abuse Pattern > 3. Infra Compromise > ... > 7. Keywords
     if (conflict.conflict_detected && conflict.winning_signal !== 'REPUTATION') {
-        // If conflict detected and Reputation lost, we must ensure the score reflects the risk
-        // For 'INTENT' or 'BEHAVIOR' wins, we ensure a minimum score of 65 (Suspicious/Malicious)
         if (totalScore < 60) {
             totalScore = 65;
             whyItMatters.unshift(`Score adjusted due to conflict: ${conflict.primary_conflict}`);
@@ -238,7 +238,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     // --- PHASE 3: Analytical Memory, Temporal & Deep Intel ---
 
-    // Extract semantic intent early for infrastructure analysis
+    // Extract semantic intent early
     const semanticResult = validEngineResults.find(r => r.name === 'semantic');
     const semanticIntentData = semanticResult ? (semanticResult as any).semantic_intent : undefined;
 
@@ -273,6 +273,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     }
 
     if (infrastructure.trusted_infra_abuse) {
+        // Engine 14 - Trusted Infrastructure Abuse Model
         whyItMatters.unshift("CRITICAL: Trusted infrastructure abused to inherit false legitimacy.");
         // Ensure score is high enough if not already
         if (totalScore < 75) {
@@ -301,7 +302,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     // Apply Meta Adjustments
     finalConfidence *= metaJudgment.confidence_adjustment;
     uncertaintyFlags.push(...(metaJudgment.warnings || []));
-    uncertaintyFlags.push(...metaJudgment.contradictions || []); // Compat
+    uncertaintyFlags.push(...metaJudgment.contradictions || []);
 
     // Apply Deep Intel Adjustments to Confidence
     finalConfidence -= behavioral.timeline_confidence_penalty;
@@ -357,16 +358,20 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     let finalAssessment: FinalAssessment = 'SAFE';
 
     if (isRootTrusted) {
+        // Engine 45 - Trusted Brand Immunity
         // LAW: Domain Trust is SAFE (already set in rootTrustResult)
         // Usage Risk determines Final Assessment
-        if (usageRisk === 'MALICIOUS' || usageRisk === 'SUSPICIOUS' || verdict === 'MALICIOUS' || verdict === 'SUSPICIOUS') {
+
+        // Engine 46 — Abuse-Only Escalation Rule
+        // Only escalate if: Trusted Brand AND Abuse Detected
+        if (infrastructure.trusted_infra_abuse || usageRisk === 'MALICIOUS') {
              finalAssessment = 'TRUSTED_SERVICE_ABUSED';
-             // Adjust legacy verdict to match visual expectation of risk, even if domain is safe.
-             // We keep verdict as SUSPICIOUS to trigger warning colors, but explanation handles the rest.
-             if (verdict === 'BENIGN') verdict = 'SUSPICIOUS';
+             if (verdict === 'BENIGN') verdict = 'SUSPICIOUS'; // UI Warning
         } else {
              finalAssessment = 'SAFE';
              verdict = 'BENIGN'; // Force Benign
+             // Ensure score is low for trusted brands without abuse
+             if (totalScore > 20) totalScore = 10;
         }
     } else {
          // Non-trusted domains
@@ -379,9 +384,8 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     const contextDecision = applyContextualVerdict(verdict, context?.source);
     if (contextDecision.context_downgrade) {
         verdict = contextDecision.adjusted_verdict;
-        // Adjust score implicitly if needed for consistency, or just log stage
         if (verdict === 'SUSPICIOUS' && totalScore < 50) {
-             totalScore = 60; // Force score into suspicious range
+             totalScore = 60;
         }
         riskTimeline.push({ stage: 'Contextual Adjustment', score: totalScore });
     }
@@ -392,15 +396,14 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     if (contextDivergence) {
         uncertaintyFlags.push('This artifact is context-dependent and unsafe to generalize.');
-        // Increase fragility if not already high
         if (fragility.level === 'LOW') {
             fragility.level = 'MEDIUM';
             fragility.reasons.push('Verdict is highly sensitive to context (divergent scenarios).');
         }
     }
 
-    // Final Confidence Calibration
-    finalConfidence = calibrateConfidence(finalConfidence, verdict, totalScore, fragility.level);
+    // Engine 60 & 69 — Confidence Governor & Calibration
+    finalConfidence = calibrateConfidence(finalConfidence, verdict, totalScore, fragility.level, finalAssessment);
 
     // Calculate Epistemic Profile (New)
     const epistemicProfile = buildEpistemicProfile(
@@ -410,14 +413,27 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         conflict,
         metaJudgment
     );
-
-    // Use the Epistemic Profile's confidence range as the source of truth
     const confidenceRange = epistemicProfile.confidence_range;
-
-    // Append Epistemic uncertainty sources to uncertaintyFlags
     uncertaintyFlags.push(...epistemicProfile.uncertainty_sources);
 
     const reasoningGraph = buildReasoningGraph(aggregatedFeatures, verdict);
+
+    // Engine 63 — Verdict Consistency Guard (Post-Calibration Check)
+    // If verdict implies high certainty but confidence is low, or vice versa, adjust.
+    // This logic is partially handled by calibrateConfidence, but we add a safety check.
+    if (verdict === 'MALICIOUS' && finalConfidence < 0.70) {
+        // Invalid State: Malicious requires > 70%
+        verdict = 'SUSPICIOUS';
+        finalAssessment = 'SUSPICIOUS';
+        uncertaintyFlags.push("Downgraded from Malicious to Suspicious due to insufficient confidence.");
+    }
+    if (verdict === 'BENIGN' && finalConfidence < 0.70 && finalAssessment !== 'TRUSTED_SERVICE_ABUSED') {
+         // If Benign but very unsure, maybe 'Safe with reservations' (handled by explanation)
+         // or if really low, UNKNOWN.
+         if (finalConfidence < 0.40) {
+             verdict = 'UNKNOWN';
+         }
+    }
 
     // --- PHASE 5: Self-Critique, Analyst Insight & Output Construction ---
 
@@ -457,14 +473,14 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     // Explanation Construction (Standard + Analyst Insight)
     const explanation = {
-        summary: analystInsight.analyst_summary, // Use Analyst Summary
+        summary: analystInsight.analyst_summary,
         positive_factors: validEngineResults.filter(r => r.score < 20).map(r => r.summary || `${r.name}: Low Risk`),
         negative_factors: validEngineResults.filter(r => r.score >= 20).map(r => r.summary || `${r.name}: High Risk`),
         weights: validEngineResults.reduce((acc, r) => ({ ...acc, [r.name]: r.score }), {}),
         reasoning_steps: metaJudgment.warnings || [],
-        primaryFactors: analystInsight.analyst_takeaways, // Use Analyst Takeaways
+        primaryFactors: analystInsight.analyst_takeaways,
         technicalAnalysis: whyItMatters.join('\n'),
-        recommendedActions: [analystInsight.analyst_recommendation] // Use Analyst Recommendation
+        recommendedActions: [analystInsight.analyst_recommendation]
     };
 
     const analysisResult: AnalysisResult = {
@@ -542,8 +558,6 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     // Update Campaign Memory
     if (totalScore > 50) {
-        // Only track potential bad patterns to save space/noise?
-        // Or track all for frequency analysis? Let's track all.
         await updateCampaignMemory(env, fingerprint, artifact);
     }
 

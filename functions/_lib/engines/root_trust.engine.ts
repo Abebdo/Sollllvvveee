@@ -1,76 +1,39 @@
 import { EngineResult } from './types';
 import { ArtifactType, DomainTrustVerdict } from '../types';
+import { isRealityAnchor, getProviderRole, isGlobalInfraProvider } from './world_model';
 
-export const ROOT_TRUSTED_DOMAINS = new Set([
-  'google.com',
-  'microsoft.com',
-  'github.com',
-  'apple.com',
-  'cloudflare.com',
-  'amazon.com',
-  'aws.amazon.com',
-  'dropbox.com',
-  'salesforce.com',
-  'atlassian.com',
-  'gitlab.com',
-  'vercel.com',
-  'netlify.com',
-  'herokuapp.com',
-  'pages.dev',
-  'workers.dev',
-  'githubusercontent.com',
-  'raw.githubusercontent.com',
-  'linkedin.com',
-  'facebook.com',
-  'twitter.com',
-  'x.com',
-  'instagram.com',
-  'slack.com',
-  'zoom.us',
-  'adobe.com'
-]);
-
-export function isRootTrusted(domain: string): boolean {
-    if (!domain) return false;
-    const lower = domain.toLowerCase();
-
-    // Direct match
-    if (ROOT_TRUSTED_DOMAINS.has(lower)) return true;
-
-    // Subdomain check
-    for (const root of ROOT_TRUSTED_DOMAINS) {
-        if (lower.endsWith('.' + root)) {
-            return true;
-        }
-    }
-
-    return false;
-}
+// Re-exporting for backward compatibility if needed, but WorldModel is now the source of truth
+export { isRealityAnchor as isRootTrusted } from './world_model';
 
 export async function analyzeRootTrust(artifact: string, type: ArtifactType): Promise<{
     is_trusted: boolean;
     verdict: DomainTrustVerdict;
+    role: string | null;
+    is_infra: boolean;
     engine_result: EngineResult;
 }> {
     let isTrusted = false;
+    let role: string | null = null;
+    let isInfra = false;
+    let hostname = artifact;
 
     if (type === 'domain' || type === 'url') {
         try {
-            let hostname = artifact;
             if (type === 'url') {
                 try {
                     const url = new URL(artifact);
                     hostname = url.hostname;
                 } catch (e) {
-                    // Fallback if URL parsing fails but type is URL (rare)
                     hostname = artifact.split('/')[0];
                 }
             } else {
-                 // For domain type, handle potential protocol prefix if passed incorrectly
                  hostname = artifact.replace(/^https?:\/\//, '').split('/')[0];
             }
 
-            isTrusted = isRootTrusted(hostname);
+            isTrusted = isRealityAnchor(hostname);
+            role = getProviderRole(hostname);
+            isInfra = isGlobalInfraProvider(hostname);
+
         } catch (e) {
             console.warn('Root trust analysis failed to parse artifact', e);
         }
@@ -78,14 +41,28 @@ export async function analyzeRootTrust(artifact: string, type: ArtifactType): Pr
 
     return {
         is_trusted: isTrusted,
-        verdict: isTrusted ? 'SAFE' : 'UNKNOWN', // Default to UNKNOWN (neutral), not UNTRUSTED
+        verdict: isTrusted ? 'SAFE' : 'UNKNOWN',
+        role,
+        is_infra: isInfra,
         engine_result: {
             name: 'root_trust',
-            confidence: 1.0,
-            score: isTrusted ? 0 : 50, // 0 = Safe, 50 = Neutral
-            signals: isTrusted ? ['ROOT_TRUST_IMMUNITY'] : [],
-            features: [],
-            summary: isTrusted ? 'Domain belongs to globally trusted root infrastructure.' : 'Domain is not in the root trust allowlist.'
+            confidence: 1.0, // Trusted List is deterministic
+            score: isTrusted ? 0 : 50,
+            signals: isTrusted ? ['ROOT_TRUST_IMMUNITY', 'REALITY_ANCHOR'] : [],
+            features: [
+                {
+                    id: 'reality_anchor_status',
+                    tier: 'TIER_1_LOCAL',
+                    detected: isTrusted,
+                    value: role || 'Unknown',
+                    riskContribution: isTrusted ? -50 : 0,
+                    description: isTrusted ? `Domain is a verified Reality Anchor: ${role}` : 'Domain is not a verified Reality Anchor',
+                    evidence: isTrusted ? [`Matched Global Trust Set`] : []
+                }
+            ],
+            summary: isTrusted
+                ? `Domain is a verified Reality Anchor (${role || 'Global Platform'}). Content is assumed legitimate unless abuse is proven.`
+                : 'Domain is not in the Global Reality Anchor set.'
         }
     };
 }

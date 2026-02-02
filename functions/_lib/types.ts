@@ -179,10 +179,23 @@ export interface AnalystFlags {
   requires_human_attention: boolean;
 }
 
+export interface UserImpact {
+    worst_case: string;
+    likelihood: 'LOW' | 'MEDIUM' | 'HIGH';
+    what_to_do: string;
+}
+
+export interface UserGuidance {
+    immediate_action: string;
+    verification_steps: string[];
+}
+
 export interface AnalystInsight {
   analyst_summary: string;
   analyst_takeaways: string[];
   analyst_recommendation: string;
+  user_impact?: UserImpact; // New
+  user_guidance?: UserGuidance; // New
 }
 
 export interface AnalysisResponse {
