@@ -80,6 +80,13 @@ export interface ConfidenceRange {
   uncertainty: 'LOW' | 'MEDIUM' | 'HIGH';
 }
 
+export interface EpistemicProfile {
+  confidence_range: ConfidenceRange;
+  fragility_level: 'LOW' | 'MEDIUM' | 'HIGH';
+  uncertainty_sources: string[];
+  what_would_change_verdict: string[];
+}
+
 export interface RiskTimelineStage {
   stage: string;
   score: number;
@@ -225,6 +232,8 @@ export interface AnalysisResult {
   semantic_intent?: SemanticIntentResult;
   fragility?: FragilityResult;
   contextual_verdict?: ContextualVerdict;
+  contextual_verdicts?: Record<string, RiskVerdict>; // Multiplexed contexts
+  epistemic_profile?: EpistemicProfile;
   risk_timeline?: RiskTimelineStage[];
   confidence_range?: ConfidenceRange;
 
