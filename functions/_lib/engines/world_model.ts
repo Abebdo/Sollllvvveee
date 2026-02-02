@@ -1,31 +1,18 @@
-
 // Engine 65 — Global Internet Reality Model
 // Defines the "Ground Truth" of the internet to prevent hallucinations.
 
 export const GLOBAL_HUMAN_TRUST_SET = new Set([
   'google.com',
-  'youtube.com',
-  'amazon.com',
-  'microsoft.com',
   'apple.com',
+  'microsoft.com',
   'github.com',
   'cloudflare.com',
-  'paypal.com', // Base domain only
-  'linkedin.com',
-  'facebook.com',
-  'twitter.com',
-  'x.com',
-  'instagram.com',
-  'netflix.com',
-  'wikipedia.org',
-  'adobe.com',
-  'salesforce.com',
-  'dropbox.com',
-  'zoom.us',
-  'slack.com',
-  'spotify.com',
-  'whatsapp.com',
-  'openai.com'
+  'amazon.com',
+  'paypal.com',
+  'meta.com',
+  'openai.com',
+  'docs.google.com',
+  'accounts.google.com'
 ]);
 
 export const REALITY_ANCHORS: Record<string, { role: string; type: 'INFRASTRUCTURE' | 'PLATFORM' | 'COMMERCE' | 'FINANCE' }> = {
@@ -42,7 +29,9 @@ export const REALITY_ANCHORS: Record<string, { role: string; type: 'INFRASTRUCTU
   'office.com': { role: 'Productivity Platform', type: 'PLATFORM' },
   'apple.com': { role: 'Ecosystem Root', type: 'PLATFORM' },
   'paypal.com': { role: 'Payment Processor', type: 'FINANCE' },
-  'stripe.com': { role: 'Payment Infrastructure', type: 'FINANCE' }
+  'stripe.com': { role: 'Payment Infrastructure', type: 'FINANCE' },
+  'meta.com': { role: 'Social Platform', type: 'PLATFORM' },
+  'openai.com': { role: 'AI Infrastructure', type: 'INFRASTRUCTURE' }
 };
 
 export const GLOBAL_INFRA_PROVIDERS = new Set([
@@ -67,10 +56,18 @@ export function isRealityAnchor(domain: string): boolean {
     // Direct match
     if (GLOBAL_HUMAN_TRUST_SET.has(lower)) return true;
     if (REALITY_ANCHORS[lower]) return true;
+    if (GLOBAL_INFRA_PROVIDERS.has(lower)) return true;
 
     // Subdomain check for trusted sets (e.g. mail.google.com)
     // Note: We must be careful not to allow evil-google.com
     for (const root of GLOBAL_HUMAN_TRUST_SET) {
+        if (lower.endsWith('.' + root) && lower.slice(-(root.length + 1)) === '.' + root) {
+            return true;
+        }
+    }
+
+    // Subdomain check for Infra Providers (e.g. raw.githubusercontent.com)
+    for (const root of GLOBAL_INFRA_PROVIDERS) {
         if (lower.endsWith('.' + root) && lower.slice(-(root.length + 1)) === '.' + root) {
             return true;
         }
@@ -107,4 +104,8 @@ export function isGlobalInfraProvider(domain: string): boolean {
         }
     }
     return false;
+}
+
+export function isCriticalInfrastructure(domain: string): boolean {
+  return isGlobalInfraProvider(domain) || isRealityAnchor(domain);
 }

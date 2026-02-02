@@ -10,7 +10,7 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
             agreement_score: 0,
             echo_chamber_risk: 'HIGH',
             fragility_level: 'HIGH',
-            confidence_adjustment: 0.5,
+            confidence_adjustment: 0.4, // Heavy penalty
             warnings: ['No valid engine results available'],
             engine_count: 0,
             engine_family_diversity: 0,
@@ -54,7 +54,6 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
     const agreementScore = Math.max(0, parseFloat((1 - (stdDev / 50)).toFixed(2)));
 
     // 3. Agreement Ratio (Consensus Direction)
-    // How many agree with the majority direction (Safe < 50 vs Risky >= 50)
     const riskyCount = scores.filter(s => s >= 50).length;
     const safeCount = scores.filter(s => s < 50).length;
     const majorityCount = Math.max(riskyCount, safeCount);
@@ -86,9 +85,9 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
     let adjustment = 1.0;
     let fragility_level: 'LOW' | 'MEDIUM' | 'HIGH' = 'LOW';
 
-    // Rule: Diversity < 0.3 => degrade confidence
+    // Rule: Diversity < 0.3 => degrade confidence significantly
     if (sourceDiversity < 0.3) {
-        adjustment *= 0.8;
+        adjustment *= 0.75;
         warnings.push('Low source diversity: verdict relies on too few engines.');
         if (fragility_level === 'LOW') fragility_level = 'MEDIUM';
     }
@@ -103,7 +102,6 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
     // Rule: Reputation vs Reality
     // If reputation is safe (0) but heuristics/behavior is risky (>40)
     const reputation = validResults.find(r => r.name === 'reputation');
-    // Note: 'semantic' engine might not be in results yet if not called, but logic holds.
     const riskyEngines = validResults.filter(r => r.score > 40 && r.name !== 'reputation');
 
     if (reputation && reputation.score === 0 && riskyEngines.length > 0) {
@@ -128,29 +126,6 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
         echo_chamber_risk = 'HIGH';
     }
 
-    // Rule: Family Consensus Check (Fake Consensus)
-    // If we have multiple engines but they are all in the same family (e.g. 3 heuristic engines agreeing),
-    // we shouldn't treat this as independent confirmation.
-    for (const [fam, scores] of Object.entries(familyScores)) {
-        if (scores.length > 1 && presentFamilies.size === 1) {
-            // High internal agreement within a single family, but no external validation
-            const famAvg = scores.reduce((a, b) => a + b, 0) / scores.length;
-            const famVar = scores.reduce((a, b) => a + Math.pow(b - famAvg, 2), 0) / scores.length;
-
-            if (famVar < 10) { // High agreement
-                warnings.push(`Verdict relies solely on ${fam} analysis without cross-validation.`);
-                adjustment *= 0.8;
-                echo_chamber_risk = 'HIGH';
-            }
-        }
-    }
-
-    // Disagreement Level (Legacy)
-    let disagreement_level: 'low' | 'medium' | 'high';
-    if (stdDev < 15) disagreement_level = 'low';
-    else if (stdDev < 30) disagreement_level = 'medium';
-    else disagreement_level = 'high';
-
     return {
         source_diversity: sourceDiversity,
         agreement_score: agreementScore,
@@ -166,7 +141,7 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
 
         // Compat
         consensus_score: agreementScore,
-        disagreement_level,
+        disagreement_level: stdDev < 15 ? 'low' : (stdDev < 30 ? 'medium' : 'high'),
         contradictions: warnings,
         judgment_notes: notes
     };

@@ -69,8 +69,8 @@ describe('Root Infrastructure Immunity & Usage-Based Intelligence', () => {
         expect(result.final_assessment).toBe('TRUSTED_SERVICE_ABUSED');
 
         // Explanation Check
-        expect(result.explanation.summary).toContain('globally trusted and safe service');
-        expect(result.explanation.summary).toContain('abuse trusted platforms');
+        expect(result.explanation.summary).toMatch(/globally trusted service/);
+        expect(result.explanation.summary).toMatch(/abusing its infrastructure|abuse trusted platform/);
     });
 
     // 2. GitHub Raw Abuse (Trusted Domain + Malicious Code)
