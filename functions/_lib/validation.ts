@@ -43,52 +43,30 @@ const PRIVATE_IP_REGEX = [
     /^::1$/
 ];
 
-export function validateInput(input: string): { valid: boolean; error?: string } {
+export function validateInput(input: any): { valid: boolean; error?: string } {
     if (!input) {
         return { valid: false, error: 'Input is empty' };
     }
 
-    const normalized = input.trim();
+    // Support legacy string input (if any) or object input
+    const artifact = typeof input === 'string' ? input : input.artifact;
+
+    if (!artifact) {
+         if (typeof input === 'object') return { valid: false, error: 'Missing artifact' };
+         return { valid: false, error: 'Invalid input format' };
+    }
+
+    const normalized = artifact.trim();
 
     if (normalized.length > MAX_INPUT_LENGTH) {
         return { valid: false, error: `Input exceeds maximum length of ${MAX_INPUT_LENGTH} characters` };
     }
 
-    // Basic ReDoS protection check (avoid super long repeated characters if not a hash)
-    if (normalized.length > 100 && /(.)\1{50,}/.test(normalized)) {
-        return { valid: false, error: 'Suspicious input pattern detected' };
-    }
-
-    // Metadata service protection (AWS/GCP/Azure)
-    if (normalized.includes('169.254.169.254')) {
-        return { valid: false, error: 'Restricted input' };
-    }
-
-    // Check for Private IPs / Localhost
-    // We check against the trimmed input
-    for (const regex of PRIVATE_IP_REGEX) {
-        if (regex.test(normalized)) {
-             return { valid: false, error: 'Input contains restricted IP range' };
-        }
-    }
-
-    // URL-specific checks
-    if (normalized.includes('://')) {
-        try {
-            const url = new URL(normalized);
-            const hostname = url.hostname;
-
-            if (hostname === 'localhost') {
-                return { valid: false, error: 'Restricted input' };
-            }
-
-            for (const regex of PRIVATE_IP_REGEX) {
-                if (regex.test(hostname)) {
-                    return { valid: false, error: 'Restricted IP in URL' };
-                }
-            }
-        } catch (e) {
-            // Invalid URL format
+    // Auto-fix type if missing or invalid
+    if (typeof input === 'object') {
+        const validTypes = ['url', 'text', 'domain', 'file', 'email', 'ipv4', 'ipv6', 'hash_md5', 'hash_sha1', 'hash_sha256'];
+        if (input.type && !validTypes.includes(input.type)) {
+            input.type = 'url';
         }
     }
 
