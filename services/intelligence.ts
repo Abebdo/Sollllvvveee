@@ -57,6 +57,13 @@ export class InputClassifier {
 export class RiskEngine {
   static async assess(input: string, type: InputType): Promise<RiskAssessment> {
     const API_URL = import.meta.env.VITE_API_URL || '/analyze';
+
+    // Explicit Logging for Diagnostics
+    console.log('[RiskEngine] Configuration:', {
+        API_BASE_URL: import.meta.env.VITE_API_URL,
+        RESOLVED_API_URL: API_URL
+    });
+
     const MAX_RETRIES = 1;
     const TIMEOUT_MS = 10000;
 
@@ -65,6 +72,7 @@ export class RiskEngine {
         const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
         try {
+            console.log(`[RiskEngine] Requesting analysis from: ${API_URL}`);
             const response = await fetch(API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -72,6 +80,7 @@ export class RiskEngine {
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
+            console.log(`[RiskEngine] Response status: ${response.status}`);
 
             if (!response.ok) {
                 let errorMsg = `Backend responded with ${response.status}`;
@@ -156,7 +165,14 @@ export class RiskEngine {
 
         } catch (error: any) {
             clearTimeout(timeoutId);
-            console.error(`Analysis Attempt ${attempt + 1} Failed:`, error);
+
+            // Differentiate errors
+            let errorReason = "Network failure / Unknown";
+            if (error.name === 'AbortError') errorReason = "Timeout";
+            else if (error.message && error.message.includes('503')) errorReason = "Service Unavailable (503)";
+            else if (error.message && error.message.includes('Failed to fetch')) errorReason = "Network Connection Failed";
+
+            console.error(`Analysis Attempt ${attempt + 1} Failed: ${errorReason}`, error);
 
             if (attempt < MAX_RETRIES) {
                 const delay = Math.pow(2, attempt) * 1000;
@@ -164,21 +180,22 @@ export class RiskEngine {
                 continue;
             }
 
-            // Log final failure
+            // Log final failure with detail
             console.error('All analysis attempts failed', {
                 timestamp: new Date().toISOString(),
                 endpoint: API_URL,
-                error_code: error.message || 'UNKNOWN_ERROR'
+                reason: errorReason,
+                original_error: error.message
             });
 
             return {
                 status: 'NO_ANALYSIS',
                 risk_level: 'Minimal',
-                primary_hypothesis: "Analysis Temporarily Unavailable",
-                summary: "The analysis engine is currently unreachable. No judgment has been made.",
+                primary_hypothesis: `Analysis Unreachable (${errorReason})`,
+                summary: `The analysis engine could not be reached due to: ${errorReason}. No judgment was made.`,
                 uncertainty: { confidence_percentage: null, known_unknowns: [], suggested_verification: [] },
                 key_factors: [],
-                recommended_action: "Please try again later.",
+                recommended_action: "Please check your connection or try again later.",
                 technical_signals: []
             };
         }

@@ -47,7 +47,18 @@ const securityHeaders = {
 
 export async function handleAnalysisRequest(request: Request, env: Env): Promise<Response> {
     const start = Date.now();
+    const timestamp = new Date().toISOString();
     console.log(`[Analysis] Request received: ${request.method} ${request.url}`);
+    console.log(`[Analysis] Timestamp: ${timestamp}`);
+
+    // Internal Self-Test
+    if (!env.ANALYSIS_CACHE) {
+        console.error("CRITICAL: ANALYSIS_CACHE binding missing");
+        return new Response(JSON.stringify({
+            error: "ENGINE_UNAVAILABLE",
+            reason: "Backend not initialized / dependency failure"
+        }), { status: 503, headers: corsHeaders });
+    }
 
     let rlStatus: any;
 
@@ -80,6 +91,8 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     }
 
     const rawArtifact = body.artifact;
+    console.log(`[Analysis] Target Artifact: ${rawArtifact}`);
+
     const validation = validateInput(rawArtifact);
     if (!validation.valid) {
         return createErrorResponse(new AppError(ErrorCode.VALIDATION_INVALID_INPUT, validation.error || 'Invalid input', 400));
