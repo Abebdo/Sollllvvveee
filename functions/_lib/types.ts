@@ -90,6 +90,7 @@ export interface RiskTimelineStage {
 export interface MetaJudgmentResult {
   source_diversity: number;        // 0.0 – 1.0
   agreement_score: number;         // 0.0 – 1.0
+  echo_chamber_risk: 'LOW' | 'MEDIUM' | 'HIGH';
   fragility_level: 'LOW' | 'MEDIUM' | 'HIGH';
   confidence_adjustment: number;   // multiplier
   warnings?: string[];

@@ -17,7 +17,7 @@ import { applyContextualVerdict } from './context/contextual_verdict';
 import { consultMemory, updateMemory } from './memory/analytical_memory';
 import { AppError, ErrorCode, createErrorResponse } from './errors';
 import { analyzeTemporal } from './temporal';
-import { calculateConfidence } from './confidence';
+import { calculateConfidence, calibrateConfidence } from './confidence';
 import { buildReasoningGraph } from './reasoning';
 import { CognitiveTraceStep } from './cognitive_trace';
 import { SelfCritique } from './types';
@@ -240,17 +240,6 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         uncertaintyFlags.push('Artifact demonstrates volatile behavior historically');
     }
 
-    finalConfidence = Math.max(0.1, Math.min(1.0, parseFloat(finalConfidence.toFixed(2))));
-
-    // Calculate Uncertainty Range
-    const uncertainty = parseFloat((1 - finalConfidence).toFixed(2));
-    const confidenceRange = {
-        min: parseFloat(Math.max(0, finalConfidence - (uncertainty * 0.5)).toFixed(2)),
-        most_likely: finalConfidence,
-        max: parseFloat(Math.min(1, finalConfidence + (uncertainty * 0.2)).toFixed(2)),
-        uncertainty
-    };
-
     // Verdict Logic (Initial)
     let verdict: RiskVerdict = 'UNKNOWN';
     if (totalScore > 80) verdict = 'MALICIOUS';
@@ -284,6 +273,18 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         }
         riskTimeline.push({ stage: 'Contextual Adjustment', score: totalScore });
     }
+
+    // Final Confidence Calibration
+    finalConfidence = calibrateConfidence(finalConfidence, verdict, totalScore, fragility.level);
+
+    // Calculate Uncertainty Range
+    const uncertainty = parseFloat((1 - finalConfidence).toFixed(2));
+    const confidenceRange = {
+        min: parseFloat(Math.max(0, finalConfidence - (uncertainty * 0.5)).toFixed(2)),
+        most_likely: finalConfidence,
+        max: parseFloat(Math.min(0.99, finalConfidence + (uncertainty * 0.2)).toFixed(2)), // Never 1.0
+        uncertainty
+    };
 
     const reasoningGraph = buildReasoningGraph(aggregatedFeatures, verdict);
 

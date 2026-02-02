@@ -105,7 +105,7 @@ describe('Final Intelligence Upgrade', () => {
         const result = data.data;
 
         expect(result.analyst_insight).toBeDefined();
-        expect(result.analyst_insight.analyst_summary).toContain('Although the domain is highly trusted');
+        expect(result.analyst_insight.analyst_summary).toContain('Although the domain carries a reputable history');
         expect(result.explanation.summary).toBe(result.analyst_insight.analyst_summary);
     });
 

@@ -1,82 +1,58 @@
 import { EngineResult } from '../engines/types';
-import { ConflictResolution, AnalystInsight, RiskVerdict } from '../types';
+import { ConflictResolution, RiskVerdict, AnalystInsight } from '../types';
 
 export function generateAnalystExplanation(
     results: EngineResult[],
     conflict: ConflictResolution,
     verdict: RiskVerdict,
-    finalScore: number
+    riskScore: number
 ): AnalystInsight {
-    // 1. Build Summary
+
+    // Gather Key Signals
+    const positiveSignals = results.filter(r => r.score < 20).map(r => r.summary).filter(Boolean);
+    const negativeSignals = results.filter(r => r.score > 40).map(r => r.summary).filter(Boolean);
+
+    const semantic = results.find(r => r.name === 'semantic');
+    const reputation = results.find(r => r.name === 'reputation');
+
+    // Construct Summary using Contrastive Reasoning
     let summary = '';
 
-    // Filter out invalid or empty results
-    const validResults = results.filter(r => r && r.score !== undefined);
-    const sortedResults = [...validResults].sort((a, b) => b.score - a.score);
-    const topRisk = sortedResults.find(r => r.score > 0);
+    // Structure: "Although [Positive/Trusted], however [Negative/Risk], therefore [Verdict]."
+    // Or: "Because [Strong Evidence], and [Supporting Evidence], therefore [Verdict]."
+
+    const isTrusted = reputation && reputation.score < 10;
+    const hasRisk = negativeSignals.length > 0;
 
     if (conflict.conflict_detected) {
-        summary = conflict.reasoning;
+        summary = `Although ${conflict.winning_signal === 'INTENT' ? 'the domain carries a reputable history' : 'some indicators appear benign'}, however ${conflict.reasoning.toLowerCase()} Therefore, we assess this as ${verdict}.`;
+    } else if (isTrusted && hasRisk) {
+         // Trusted but risky (below conflict threshold but still mixed)
+         summary = `Although the source appears historically trusted, however recent behavioral anomalies suggest potential compromise. Therefore, we advise caution (Verdict: ${verdict}).`;
+    } else if (isTrusted && !hasRisk) {
+         summary = `The artifact aligns with established trusted patterns and lacks behavioral anomalies. Therefore, we assess this as ${verdict}.`;
+    } else if (!isTrusted && hasRisk) {
+         summary = `Because multiple engines detected risk indicators, including ${negativeSignals[0] ? negativeSignals[0].toLowerCase() : 'suspicious patterns'}, therefore we assess this as ${verdict}.`;
     } else {
-        if (verdict === 'MALICIOUS') {
-            summary = `This artifact is classified as Malicious (Risk Score: ${finalScore}/100). Analysis detected strong indicators of threat, primarily driven by ${topRisk?.name || 'behavioral'} analysis.`;
-        } else if (verdict === 'SUSPICIOUS') {
-             summary = `This artifact is classified as Suspicious (Risk Score: ${finalScore}/100). While definitive proof of malware is missing, it exhibits behavior patterns consistent with phishing or social engineering.`;
-        } else {
-             summary = `This artifact appears Legitimate (Risk Score: ${finalScore}/100). Security scans across multiple engines did not find significant threats.`;
-        }
+         // Ambiguous
+         summary = `Analysis yielded inconclusive results with mixed low-confidence signals. Therefore, we classify this as ${verdict} pending further data.`;
     }
 
-    // 2. Build Takeaways (Key observations)
+    // Takeaways
     const takeaways: string[] = [];
+    if (conflict.conflict_detected) takeaways.push(`Conflict: ${conflict.primary_conflict}`);
+    if (results.length < 3) takeaways.push('Note: Analysis based on limited engine coverage.');
+    takeaways.push(...negativeSignals.slice(0, 3));
 
-    // Add conflict note if exists
-    if (conflict.conflict_detected) {
-        takeaways.push(`Conflict Resolved: ${conflict.primary_conflict} -> Verdict based on ${conflict.winning_signal}`);
-    }
-
-    // Add top signals
-    // We prioritize specific signals over engine summaries if available
-    const allSignals: string[] = [];
-    validResults.forEach(r => {
-        if (r.signals && r.signals.length > 0) {
-            // Map signals to human readable if possible, otherwise use summary or signal ID
-            // For now, we assume engines might provide readable summaries or we use engine name + high risk
-            if (r.score >= 50) {
-                if (r.name === 'semantic') allSignals.push('Content suggests malicious intent (e.g. credential harvesting).');
-                else if (r.name === 'structure') allSignals.push('Domain structure appears irregular or deceptive.');
-                else if (r.name === 'heuristic') allSignals.push('Behavioral patterns match known threat profiles.');
-                else if (r.name === 'reputation') allSignals.push('Source has a poor history or is known for abuse.');
-                else if (r.summary) allSignals.push(r.summary);
-            }
-        }
-    });
-
-    // Deduplicate
-    const uniqueSignals = Array.from(new Set(allSignals));
-    takeaways.push(...uniqueSignals);
-
-    if (takeaways.length === 0) {
-        takeaways.push("No specific threat indicators found.");
-        takeaways.push("Infrastructure appears standard.");
-    }
-
-    // Limit to top 4
-    const finalTakeaways = takeaways.slice(0, 4);
-
-    // 3. Recommendation
+    // Recommendation
     let recommendation = '';
-    if (verdict === 'MALICIOUS') {
-        recommendation = 'BLOCK and REPORT. Do not open or interact with this artifact.';
-    } else if (verdict === 'SUSPICIOUS') {
-        recommendation = 'TREAT AS POTENTIALLY DANGEROUS. Verify the source via a different channel (e.g., call the sender) before clicking.';
-    } else {
-        recommendation = 'Standard caution recommended. No immediate threat detected.';
-    }
+    if (verdict === 'MALICIOUS') recommendation = 'Block immediately and investigate potential compromise.';
+    else if (verdict === 'SUSPICIOUS') recommendation = 'Treat with extreme caution; verify independently before interaction.';
+    else recommendation = 'Standard safety protocols apply; no immediate threat detected.';
 
     return {
         analyst_summary: summary,
-        analyst_takeaways: finalTakeaways,
+        analyst_takeaways: takeaways,
         analyst_recommendation: recommendation
     };
 }

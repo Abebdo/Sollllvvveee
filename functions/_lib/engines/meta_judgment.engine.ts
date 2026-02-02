@@ -8,6 +8,7 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
         return {
             source_diversity: 0,
             agreement_score: 0,
+            echo_chamber_risk: 'HIGH',
             fragility_level: 'HIGH',
             confidence_adjustment: 0.5,
             warnings: ['No valid engine results available'],
@@ -36,6 +37,7 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
     const contributingEngines = validResults.filter(r =>
         (r.features && r.features.length > 0) || r.score > 0
     );
+    // Use total result count as base, but ensure at least 1
     const sourceDiversity = parseFloat((contributingEngines.length / Math.max(1, results.length)).toFixed(2));
 
     const warnings: string[] = [];
@@ -49,7 +51,17 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
     if (sourceDiversity < 0.3) {
         adjustment *= 0.8;
         warnings.push('Low source diversity: verdict relies on too few engines.');
-        if (fragility_level !== 'HIGH') fragility_level = 'MEDIUM'; // Don't downgrade HIGH
+        if (fragility_level !== 'HIGH') fragility_level = 'MEDIUM';
+    }
+
+    // Echo Chamber Risk Calculation
+    // If diversity is low, risk is high.
+    // If diversity is medium/high but we suspect correlated errors (e.g. all static)
+    let echo_chamber_risk: 'LOW' | 'MEDIUM' | 'HIGH' = 'LOW';
+    if (sourceDiversity < 0.4) {
+        echo_chamber_risk = 'HIGH';
+    } else if (sourceDiversity < 0.6) {
+        echo_chamber_risk = 'MEDIUM';
     }
 
     // Rule: Reputation vs Reality
@@ -77,11 +89,13 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
         warnings.push('Verdict relies on a single engine source.');
         adjustment *= 0.7;
         fragility_level = 'HIGH';
+        echo_chamber_risk = 'HIGH';
     }
 
     return {
         source_diversity: sourceDiversity,
         agreement_score: agreementScore,
+        echo_chamber_risk,
         fragility_level,
         confidence_adjustment: parseFloat(adjustment.toFixed(2)),
         warnings,

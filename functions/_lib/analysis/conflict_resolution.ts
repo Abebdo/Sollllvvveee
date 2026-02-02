@@ -2,69 +2,64 @@ import { EngineResult } from '../engines/types';
 import { ConflictResolution } from '../types';
 
 export function analyzeConflict(results: EngineResult[]): ConflictResolution {
-    const reputation = results.find(r => r.name === 'reputation');
     const semantic = results.find(r => r.name === 'semantic');
-    const structure = results.find(r => r.name === 'structure');
     const heuristic = results.find(r => r.name === 'heuristic');
+    const reputation = results.find(r => r.name === 'reputation');
 
-    const repScore = reputation?.score || 0;
-    const intentScore = semantic?.score || 0;
-    const structureScore = structure?.score || 0;
-    const heuristicScore = heuristic?.score || 0;
-
-    // Default: No conflict
-    let conflict: ConflictResolution = {
+    // Default state
+    const resolution: ConflictResolution = {
         conflict_detected: false,
         primary_conflict: null,
         winning_signal: 'NONE',
-        reasoning: '',
+        reasoning: 'No significant conflicts detected between engines.',
         confidence_adjustment: 1.0
     };
 
-    // 1. High Reputation vs Malicious Intent (The "Abused Infrastructure" Case)
-    // Reputation says Safe (Low Score) but Intent says Risky (High Score)
-    if (repScore < 25 && intentScore >= 50) {
-        conflict = {
-            conflict_detected: true,
-            primary_conflict: 'Trusted Infrastructure vs. Malicious Intent',
-            winning_signal: 'INTENT',
-            reasoning: `Although the domain is highly trusted (Reputation Score: ${repScore}), semantic analysis detected malicious intent (Score: ${intentScore}). This strongly suggests the infrastructure is being abused.`,
-            confidence_adjustment: 0.85
-        };
+    if (!semantic && !heuristic && !reputation) return resolution;
+
+    const intentMalicious = (semantic as any)?.semantic_intent?.intent === 'MALICIOUS';
+    const intentSuspicious = (semantic as any)?.semantic_intent?.intent === 'SUSPICIOUS';
+
+    // Heuristic Phishing Signals
+    const heuristicPhishing = heuristic?.signals?.some(s =>
+        s.includes('credential') || s.includes('phishing') || s.includes('impersonation') || s.includes('urgency')
+    ) || false;
+
+    // Reputation Status
+    const reputationSafe = reputation?.score === 0; // Assuming 0 is clean/safe
+    // If reputation returns features like 'safe_list'
+    const isAllowListed = reputation?.signals?.includes('safe_list') || reputationSafe;
+
+    // 1. Trusted Domain + Credential Harvesting / Phishing
+    // If reputation says SAFE (Trusted) but Semantic/Heuristic says MALICIOUS
+    if (isAllowListed && (intentMalicious || heuristicPhishing)) {
+        resolution.conflict_detected = true;
+        resolution.primary_conflict = 'Trusted Infrastructure hosting Phishing/Malicious content';
+        resolution.winning_signal = 'INTENT';
+        resolution.reasoning = 'Malicious semantic intent overrides trusted domain reputation.';
+        resolution.confidence_adjustment = 0.8; // Degrade confidence
+        return resolution;
     }
 
-    // 2. High Reputation vs Suspicious Intent (Subtle Abuse)
-    else if (repScore < 25 && intentScore >= 30) {
-         conflict = {
-            conflict_detected: true,
-            primary_conflict: 'Trusted Infrastructure vs. Suspicious Indicators',
-            winning_signal: 'INTENT',
-            reasoning: `The domain is trusted, but contains suspicious keywords or patterns (Score: ${intentScore}).`,
-            confidence_adjustment: 0.90
-        };
+    // 2. High Reputation + Malicious Intent (Generic)
+    if (reputationSafe && (intentMalicious || (semantic?.score || 0) > 80)) {
+        resolution.conflict_detected = true;
+        resolution.primary_conflict = 'High Reputation contradicted by Malicious Intent';
+        resolution.winning_signal = 'INTENT';
+        resolution.reasoning = 'Detected clear malicious intent despite clean reputation history.';
+        resolution.confidence_adjustment = 0.75;
+        return resolution;
     }
 
-    // 3. High Reputation vs Behavioral Anomalies
-    else if (repScore < 25 && heuristicScore >= 60) {
-        conflict = {
-            conflict_detected: true,
-            primary_conflict: 'Trusted Reputation vs. Anomalous Behavior',
-            winning_signal: 'BEHAVIOR',
-            reasoning: `The artifact has high reputation but exhibits significant behavioral anomalies (Heuristic Score: ${heuristicScore}).`,
-            confidence_adjustment: 0.9
-        };
+    // 3. Trusted Infrastructure + Phishing Behavior (Heuristic)
+    if (isAllowListed && heuristicPhishing) {
+        resolution.conflict_detected = true;
+        resolution.primary_conflict = 'Trusted Infrastructure displaying Phishing Behavior';
+        resolution.winning_signal = 'BEHAVIOR'; // Heuristic is behavior/structure
+        resolution.reasoning = 'Phishing indicators detected on otherwise trusted infrastructure.';
+        resolution.confidence_adjustment = 0.8;
+        return resolution;
     }
 
-    // 4. Structural Risk vs Reputation
-    else if (repScore < 15 && structureScore >= 70) {
-        conflict = {
-            conflict_detected: true,
-            primary_conflict: 'Trusted Reputation vs. High Structural Risk',
-            winning_signal: 'STRUCTURE',
-            reasoning: `Despite trusted reputation, the domain structure is highly irregular (Structure Score: ${structureScore}).`,
-            confidence_adjustment: 0.8
-        };
-    }
-
-    return conflict;
+    return resolution;
 }
