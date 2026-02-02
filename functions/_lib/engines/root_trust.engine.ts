@@ -41,6 +41,10 @@ export async function analyzeRootTrust(artifact: string, type: ArtifactType): Pr
         }
     }
 
+    // DIRECTIVE: Confidence ≥ 85%, but NO 100%.
+    // We use 0.98 for Reality Anchors as the "Ground Truth" cap.
+    const confidence = isTrusted ? 0.98 : 0.50; // 0.50 for unknown (neutral)
+
     return {
         is_trusted: isTrusted,
         verdict: isTrusted ? 'SAFE' : 'UNKNOWN',
@@ -48,8 +52,8 @@ export async function analyzeRootTrust(artifact: string, type: ArtifactType): Pr
         is_infra: isInfra,
         engine_result: {
             name: 'root_trust',
-            confidence: 1.0, // Trusted List is deterministic
-            score: isTrusted ? 0 : 50,
+            confidence: confidence,
+            score: isTrusted ? 0 : 50, // 0 = Safe, 50 = Unknown/Neutral baseline
             signals: isTrusted ? ['ROOT_TRUST_IMMUNITY', 'REALITY_ANCHOR'] : [],
             features: [
                 {

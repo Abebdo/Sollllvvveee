@@ -37,37 +37,34 @@ export function analyzeConflict(results: EngineResult[], rootTrusted: boolean = 
     // e.g. "google.com" triggers 'credential_targeting' (keyword 'google'), but that's weak (score 30).
     // We require Heuristic Score > 50 to confirm it's not just a keyword match.
     if (rootTrusted && (intentMalicious || (heuristicPhishing && heuristicScore > 50) || semanticScore > 80)) {
-        console.log('Conflict: Root Trust Abuse detected', { intentMalicious, heuristicPhishing, heuristicScore, semanticScore });
         resolution.conflict_detected = true;
         resolution.primary_conflict = 'Trusted Service Abuse';
         resolution.winning_signal = 'INTENT';
         resolution.reasoning = 'Malicious usage detected on globally trusted infrastructure.';
         // We do not severely penalize confidence here because we are sure about the abuse pattern
         // but we acknowledge the inherent duality.
-        resolution.confidence_adjustment = 0.85;
+        resolution.confidence_adjustment = 0.90;
         return resolution;
     }
 
     // 1. Trusted Domain + Credential Harvesting / Phishing (Intent beats Reputation)
     // Apply same safeguard: Heuristic must be strong (>50) if it's the only signal, to avoid keyword noise.
     if (isAllowListed && (intentMalicious || (heuristicPhishing && heuristicScore > 50) || semanticScore > 80)) {
-        console.log('Conflict: Trusted Domain Abuse', { isAllowListed, intentMalicious, heuristicPhishing, heuristicScore, semanticScore });
         resolution.conflict_detected = true;
         resolution.primary_conflict = 'Trusted Infrastructure Abuse (Phishing/Malicious Content)';
         resolution.winning_signal = 'INTENT';
         resolution.reasoning = 'Malicious intent signals override domain reputation.';
-        resolution.confidence_adjustment = 0.7; // Significant degradation
+        resolution.confidence_adjustment = 0.8; // Significant degradation
         return resolution;
     }
 
     // 2. High Reputation + Suspicious Intent
     if (reputationSafe && (intentSuspicious || semanticScore > 60)) {
-        console.log('Conflict: High Rep + Suspicious Intent', { reputationSafe, intentSuspicious, semanticScore });
         resolution.conflict_detected = true;
         resolution.primary_conflict = 'High Reputation contradicted by Suspicious Intent';
         resolution.winning_signal = 'INTENT';
         resolution.reasoning = 'Suspicious intent patterns detected on reputable domain.';
-        resolution.confidence_adjustment = 0.8;
+        resolution.confidence_adjustment = 0.85;
         return resolution;
     }
 
@@ -78,7 +75,7 @@ export function analyzeConflict(results: EngineResult[], rootTrusted: boolean = 
         resolution.primary_conflict = 'Legitimate Structure hosting Risky Content';
         resolution.winning_signal = 'BEHAVIOR';
         resolution.reasoning = 'Behavioral heuristics indicate risk despite clean structure.';
-        resolution.confidence_adjustment = 0.85;
+        resolution.confidence_adjustment = 0.9;
         return resolution;
     }
 

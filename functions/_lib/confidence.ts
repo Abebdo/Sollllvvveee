@@ -1,12 +1,12 @@
 import { EngineResult } from './engines/types';
-import { ConfidenceProfile, RiskVerdict, ConfidenceRange, ConflictResolution, UsageRiskVerdict, FinalAssessment } from './types';
+import { ConfidenceProfile, RiskVerdict, ConfidenceRange, ConflictResolution, FinalAssessment } from './types';
 
 export function calculateConfidence(results: EngineResult[]): ConfidenceProfile {
     // Filter out failed engines or those with 0 confidence
     const validResults = results.filter(r => r && r.confidence > 0);
 
     if (validResults.length === 0) {
-        return { score: 0, reasons: ['No engines returned results'] };
+        return { score: 0.40, reasons: ['No engines returned results'] }; // Floor at 40%
     }
 
     // 1. Base Confidence: Average of engine confidences
@@ -32,9 +32,8 @@ export function calculateConfidence(results: EngineResult[]): ConfidenceProfile 
 
     let score = avgEngineConfidence + agreementFactor + countFactor;
 
-    // Engine 50 — Final Confidence Governor (NO 100%)
-    // Clamp 0-0.98
-    score = Math.max(0, Math.min(0.98, score));
+    // Clamp 0.40-0.98 (Base clamp)
+    score = Math.max(0.40, Math.min(0.98, score));
 
     const reasons = [
         `Base engine confidence: ${(avgEngineConfidence * 100).toFixed(0)}%`,
@@ -62,44 +61,32 @@ export function calibrateConfidence(
     fragilityLevel: 'LOW' | 'MEDIUM' | 'HIGH' = 'LOW',
     finalAssessment?: FinalAssessment
 ): number {
-    let min = 0;
+    let min = 0.40;
     let max = 0.95;
 
     // SECTION 69 — CONFIDENCE CALIBRATION TABLE (MANDATORY)
     // Verdict	Allowed Confidence Range
-    // Safe	85% – 99%
-    // Safe with reservations	70% – 90%
+    // Legitimate	85% – 98%
     // Suspicious	40% – 70%
-    // High Risk	65% – 85%
-    // Malicious	75% – 98%
+    // Malicious	70% – 95%
 
     if (verdict === 'MALICIOUS') {
-        if (riskScore >= 90) {
-             // Confirmed Malicious
-             min = 0.85;
-             max = 0.98;
-        } else {
-             // Likely Malicious / High Risk
-             min = 0.75;
-             max = 0.85;
-        }
+         // Malicious 70-95%
+         min = 0.70;
+         max = 0.95;
     } else if (verdict === 'SUSPICIOUS') {
-         // Suspicious
+         // Suspicious 40-70%
          min = 0.40;
          max = 0.70;
     } else if (verdict === 'BENIGN') {
-        if (finalAssessment === 'TRUSTED_SERVICE_ABUSED' || fragilityLevel === 'HIGH' || fragilityLevel === 'MEDIUM') {
-             // Safe with reservations / Contextual Risk
-             min = 0.70;
-             max = 0.90;
-        } else {
-             // Safe / Legitimate
-             min = 0.85;
-             max = 0.98; // Cap at 98% (No 100%)
-        }
+         // Legitimate 85-98%
+         // Note: If fragility is HIGH, we might want to be at the lower end of this range (85%),
+         // but strictly we must stay in range.
+         min = 0.85;
+         max = 0.98;
     } else {
-        // UNKNOWN
-        min = 0.0;
+        // UNKNOWN - Map to Suspicious/Low range
+        min = 0.40;
         max = 0.50;
     }
 
@@ -123,22 +110,14 @@ export function calculateConfidenceRange(
     let width = 0.10;
 
     // Expand based on Fragility
-    if (fragilityLevel === 'HIGH') width += 0.25;
+    if (fragilityLevel === 'HIGH') width += 0.20;
     else if (fragilityLevel === 'MEDIUM') width += 0.10;
 
     // Expand based on Conflict
     if (conflict.conflict_detected) width += 0.15;
 
     // Expand based on Diversity
-    if (sourceDiversityRatio < 0.3) width += 0.15;
-
-    // Rule: Legitimate verdicts must still show uncertainty unless High diversity, No conflicts, Low fragility
-    if (verdict === 'BENIGN') {
-        const isIdeal = fragilityLevel === 'LOW' && !conflict.conflict_detected && sourceDiversityRatio > 0.6;
-        if (!isIdeal) {
-             width = Math.max(width, 0.15); // Ensure at least moderate uncertainty
-        }
-    }
+    if (sourceDiversityRatio < 0.3) width += 0.10;
 
     // Calculate Min/Max centered around confidenceScore
     let min = confidenceScore - (width / 2);
@@ -146,7 +125,10 @@ export function calculateConfidenceRange(
 
     // Clamp absolute bounds
     // Rule: 100% confidence is forbidden
-    min = Math.max(0.1, min); // Never 0
+    // Rule: No <40% displayed confidence (for the range? or just the score?)
+    // We'll enforce min >= 0.30 for the range bottom to avoid looking broken,
+    // but the Governor ensures score >= 0.40.
+    min = Math.max(0.30, min);
     max = Math.min(0.99, max); // Never 100
 
     // Ensure range isn't inverted
@@ -154,7 +136,7 @@ export function calculateConfidenceRange(
 
     // Determine Uncertainty Level
     let uncertaintyLevel: 'LOW' | 'MEDIUM' | 'HIGH';
-    if (width >= 0.30) uncertaintyLevel = 'HIGH';
+    if (width >= 0.25) uncertaintyLevel = 'HIGH';
     else if (width >= 0.15) uncertaintyLevel = 'MEDIUM';
     else uncertaintyLevel = 'LOW';
 

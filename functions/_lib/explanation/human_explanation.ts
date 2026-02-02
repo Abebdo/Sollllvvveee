@@ -15,8 +15,8 @@ export function generateAnalystExplanation(
 ): AnalystInsight {
 
     // 1. Gather Signals
-    const positiveSignals = results.filter(r => r.score < 20 && r.confidence > 0.5).map(r => r.summary || `${r.name} indicates safety`).filter(Boolean);
-    const negativeSignals = results.filter(r => r.score >= 40).map(r => r.summary || `${r.name} detected risks`).filter(Boolean);
+    const positiveSignals = results.filter(r => r.score < 20 && r.confidence > 0.5).map(r => r.summary).filter(Boolean);
+    const negativeSignals = results.filter(r => r.score >= 40).map(r => r.summary).filter(Boolean);
 
     // Infrastructure Root Handling
     if (artifactClass === 'INFRASTRUCTURE_ROOT') {
@@ -39,7 +39,7 @@ export function generateAnalystExplanation(
     const semantic = results.find(r => r.name === 'semantic');
     const reputation = results.find(r => r.name === 'reputation');
 
-    const isTrusted = reputation && reputation.score < 10;
+    const isTrusted = (reputation && reputation.score < 10) || rootTrusted;
     const hasRisk = negativeSignals.length > 0;
 
     // 2. Construct Summary (Contrastive Reasoning & Legitimacy Language)
@@ -49,7 +49,7 @@ export function generateAnalystExplanation(
 
     // Special Case: Trusted Service Abuse (Root Trust Immunity)
     if (rootTrusted && finalAssessment === 'TRUSTED_SERVICE_ABUSED') {
-         summary = `This domain is a globally trusted service (Google/Microsoft/etc.). However, attackers frequently abuse trusted platforms to host malicious content. This specific link exhibits patterns of abuse (e.g., phishing or fake login). Therefore, we classify this as Trusted Service Abuse.`;
+         summary = `Although this domain is a globally trusted service, attackers are abusing its infrastructure to host malicious content. The analysis detected specific abuse patterns (e.g., phishing or fake login) hosted on this legitimate platform. Therefore, we classify this as Trusted Service Abuse.`;
          userImpact = {
              worst_case: "Credential theft or malware download via trusted form.",
              likelihood: "HIGH",
@@ -93,8 +93,7 @@ export function generateAnalystExplanation(
         };
     } else if (verdict === 'MALICIOUS') {
         // Clear Malicious
-        const reason = negativeSignals[0] ? negativeSignals[0].toLowerCase() : 'multiple risk indicators were found';
-        summary = `Primary analysis detected high-risk signals. Specifically, ${reason}. Therefore, we assess this artifact as MALICIOUS.`;
+        summary = `Primary analysis detected high-risk signals. Specifically, ${negativeSignals[0] || 'multiple threat indicators were found'}. Therefore, we assess this artifact as MALICIOUS.`;
         userImpact = {
             worst_case: "Identity theft, financial loss, or malware infection.",
             likelihood: "HIGH",
@@ -106,8 +105,7 @@ export function generateAnalystExplanation(
         };
     } else if (verdict === 'SUSPICIOUS') {
         // Suspicious
-        const reason = negativeSignals[0] ? negativeSignals[0].toLowerCase() : 'anomalous patterns were observed';
-        summary = `Although no definitive malicious payload was confirmed, ${reason}. Therefore, we classify this as SUSPICIOUS.`;
+        summary = `Although no definitive malicious payload was confirmed, ${negativeSignals[0] || 'anomalous patterns were observed'}. Therefore, we classify this as SUSPICIOUS.`;
         userImpact = {
             worst_case: "Potential exposure to scam or low-grade malware.",
             likelihood: "MEDIUM",
@@ -121,7 +119,7 @@ export function generateAnalystExplanation(
         // Benign
         // Ensure uncertainty is communicated if needed
         if (fragility.level !== 'LOW' || confidenceRange.uncertainty !== 'LOW') {
-             summary = `Analysis detected no active threats. Although legitimate patterns are dominant, ${fragility.reasons[0] ? fragility.reasons[0].toLowerCase() : 'visibility is limited'}. Therefore, we assess this as LIKELY LEGITIMATE but advise standard caution.`;
+             summary = `Analysis detected no active threats. However, ${fragility.reasons[0] || 'visibility is limited'}. Therefore, we assess this as LIKELY LEGITIMATE but advise standard caution.`;
         } else {
              summary = `Analysis detected no active threats. Multiple engines confirm legitimate patterns. Therefore, we assess this as LEGITIMATE.`;
         }
@@ -139,17 +137,15 @@ export function generateAnalystExplanation(
 
     // 3. Add Fragility Context & Epistemic Honesty (Why we might be wrong)
     if (fragility.level === 'HIGH') {
-        summary += ` This conclusion is FRAGILE due to ${fragility.reasons[0] ? fragility.reasons[0].toLowerCase() : 'limited visibility'}.`;
+        summary += ` Note: This conclusion is FRAGILE due to ${fragility.reasons[0] || 'limited visibility'}.`;
     } else if (fragility.level === 'MEDIUM') {
-        summary += ` This conclusion has MODERATE stability due to ${fragility.reasons[0] ? fragility.reasons[0].toLowerCase() : 'partial data coverage'}.`;
+        summary += ` Note: This conclusion has MODERATE stability due to ${fragility.reasons[0] || 'partial data coverage'}.`;
     }
 
     // Explicitly state what could change the verdict (Counterfactual)
     if (confidenceRange.uncertainty !== 'LOW') {
         if (verdict === 'BENIGN') {
-             summary += ` A shift in behavioral patterns or detection of credential-harvesting intent would immediately escalate this to MALICIOUS.`;
-        } else if (verdict === 'MALICIOUS') {
-             summary += ` Verification of ownership or removal of the flagged content would require a re-assessment.`;
+             summary += ` Detection of credential-harvesting intent would immediately escalate this to MALICIOUS.`;
         }
     }
 
@@ -165,8 +161,11 @@ export function generateAnalystExplanation(
     // 5. Recommendation
     let recommendation = '';
     if (verdict === 'MALICIOUS') recommendation = 'Block immediately. Do not interact.';
-    else if (verdict === 'SUSPICIOUS') recommendation = 'Treat with extreme caution. Verify source independently via a different channel.';
-    else recommendation = 'Proceed with standard caution. No immediate threats detected.';
+    else if (verdict === 'SUSPICIOUS') recommendation = 'Treat with extreme caution. Verify source independently.';
+    else recommendation = 'Proceed with standard caution.';
+
+    // Append user impact to summary for UI visibility if needed
+    // summary += ` \n\nImpact: ${userImpact.worst_case} (${userImpact.likelihood})`;
 
     return {
         analyst_summary: summary,
