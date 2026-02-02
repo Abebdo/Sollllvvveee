@@ -17,7 +17,7 @@ import { applyContextualVerdict } from './context/contextual_verdict';
 import { consultMemory, updateMemory } from './memory/analytical_memory';
 import { AppError, ErrorCode, createErrorResponse } from './errors';
 import { analyzeTemporal } from './temporal';
-import { calculateConfidence, calibrateConfidence } from './confidence';
+import { calculateConfidence, calibrateConfidence, calculateConfidenceRange } from './confidence';
 import { buildReasoningGraph } from './reasoning';
 import { CognitiveTraceStep } from './cognitive_trace';
 import { SelfCritique } from './types';
@@ -278,13 +278,13 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     finalConfidence = calibrateConfidence(finalConfidence, verdict, totalScore, fragility.level);
 
     // Calculate Uncertainty Range
-    const uncertainty = parseFloat((1 - finalConfidence).toFixed(2));
-    const confidenceRange = {
-        min: parseFloat(Math.max(0, finalConfidence - (uncertainty * 0.5)).toFixed(2)),
-        most_likely: finalConfidence,
-        max: parseFloat(Math.min(0.99, finalConfidence + (uncertainty * 0.2)).toFixed(2)), // Never 1.0
-        uncertainty
-    };
+    const confidenceRange = calculateConfidenceRange(
+        finalConfidence,
+        verdict,
+        fragility.level,
+        conflict,
+        metaJudgment.source_diversity
+    );
 
     const reasoningGraph = buildReasoningGraph(aggregatedFeatures, verdict);
 
@@ -297,7 +297,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         requires_human_attention: conflict.conflict_detected || fragility.level === 'HIGH' || (verdict === 'SUSPICIOUS' && totalScore < 70)
     };
 
-    const analystInsight = generateAnalystExplanation(validEngineResults, conflict, verdict, totalScore);
+    const analystInsight = generateAnalystExplanation(validEngineResults, conflict, verdict, totalScore, fragility, confidenceRange);
 
     const selfCritique: SelfCritique = {
         assumptions_made: [

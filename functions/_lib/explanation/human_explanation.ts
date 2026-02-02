@@ -1,54 +1,71 @@
 import { EngineResult } from '../engines/types';
-import { ConflictResolution, RiskVerdict, AnalystInsight } from '../types';
+import { ConflictResolution, RiskVerdict, AnalystInsight, FragilityResult, ConfidenceRange } from '../types';
 
 export function generateAnalystExplanation(
     results: EngineResult[],
     conflict: ConflictResolution,
     verdict: RiskVerdict,
-    riskScore: number
+    riskScore: number,
+    fragility: FragilityResult,
+    confidenceRange: ConfidenceRange
 ): AnalystInsight {
 
-    // Gather Key Signals
-    const positiveSignals = results.filter(r => r.score < 20).map(r => r.summary).filter(Boolean);
-    const negativeSignals = results.filter(r => r.score > 40).map(r => r.summary).filter(Boolean);
+    // 1. Gather Signals
+    const positiveSignals = results.filter(r => r.score < 20 && r.confidence > 0.5).map(r => r.summary || `${r.name} indicates safety`).filter(Boolean);
+    const negativeSignals = results.filter(r => r.score >= 40).map(r => r.summary || `${r.name} detected risks`).filter(Boolean);
 
     const semantic = results.find(r => r.name === 'semantic');
     const reputation = results.find(r => r.name === 'reputation');
 
-    // Construct Summary using Contrastive Reasoning
-    let summary = '';
-
-    // Structure: "Although [Positive/Trusted], however [Negative/Risk], therefore [Verdict]."
-    // Or: "Because [Strong Evidence], and [Supporting Evidence], therefore [Verdict]."
-
     const isTrusted = reputation && reputation.score < 10;
     const hasRisk = negativeSignals.length > 0;
 
+    // 2. Construct Summary (Contrastive Reasoning)
+    let summary = '';
+
+    // "Although..., however..., therefore..."
     if (conflict.conflict_detected) {
-        summary = `Although ${conflict.winning_signal === 'INTENT' ? 'the domain carries a reputable history' : 'some indicators appear benign'}, however ${conflict.reasoning.toLowerCase()} Therefore, we assess this as ${verdict}.`;
+        // Conflict Scenario
+        if (conflict.winning_signal === 'INTENT') {
+             summary = `Although the domain carries a reputable history, however ${conflict.reasoning.toLowerCase()}. Because risk indicators outweigh reputation in this context, therefore we assess this as ${verdict}.`;
+        } else {
+             summary = `Although ${conflict.primary_conflict ? 'conflicting signals were detected' : 'some indicators appear benign'}, however ${conflict.reasoning.toLowerCase()}. Because risk indicators outweigh reputation in this context, therefore we assess this as ${verdict}.`;
+        }
     } else if (isTrusted && hasRisk) {
-         // Trusted but risky (below conflict threshold but still mixed)
-         summary = `Although the source appears historically trusted, however recent behavioral anomalies suggest potential compromise. Therefore, we advise caution (Verdict: ${verdict}).`;
-    } else if (isTrusted && !hasRisk) {
-         summary = `The artifact aligns with established trusted patterns and lacks behavioral anomalies. Therefore, we assess this as ${verdict}.`;
-    } else if (!isTrusted && hasRisk) {
-         summary = `Because multiple engines detected risk indicators, including ${negativeSignals[0] ? negativeSignals[0].toLowerCase() : 'suspicious patterns'}, therefore we assess this as ${verdict}.`;
+        // Mixed Signals (but not flagged as conflict, or minor)
+        summary = `Although the domain has a trusted history, however recent behavioral anomalies were detected (${negativeSignals[0]}). Because behavioral shifts often indicate compromise, therefore the verdict is ${verdict}.`;
+    } else if (verdict === 'MALICIOUS') {
+        // Clear Malicious
+        const reason = negativeSignals[0] ? negativeSignals[0].toLowerCase() : 'multiple risk indicators were found';
+        summary = `Primary analysis detected high-risk signals. Specifically, ${reason}. Therefore, we assess this artifact as MALICIOUS with ${(confidenceRange.mostLikely * 100).toFixed(0)}% confidence.`;
+    } else if (verdict === 'SUSPICIOUS') {
+        // Suspicious
+        const reason = negativeSignals[0] ? negativeSignals[0].toLowerCase() : 'anomalous patterns were observed';
+        summary = `Although no definitive malicious payload was confirmed, however ${reason}. Therefore, we classify this as SUSPICIOUS.`;
     } else {
-         // Ambiguous
-         summary = `Analysis yielded inconclusive results with mixed low-confidence signals. Therefore, we classify this as ${verdict} pending further data.`;
+        // Benign
+        summary = `Analysis detected no active threats. Although zero risk is impossible, however multiple engines confirm legitimate patterns. Therefore, we assess this as BENIGN.`;
     }
 
-    // Takeaways
+    // 3. Add Fragility Context
+    if (fragility.level === 'HIGH') {
+        summary += ` This conclusion is FRAGILE due to ${fragility.reasons[0] ? fragility.reasons[0].toLowerCase() : 'limited visibility'}.`;
+    } else if (fragility.level === 'MEDIUM') {
+        summary += ` This conclusion has MODERATE stability due to ${fragility.reasons[0] ? fragility.reasons[0].toLowerCase() : 'partial data coverage'}.`;
+    }
+
+    // 4. Takeaways
     const takeaways: string[] = [];
     if (conflict.conflict_detected) takeaways.push(`Conflict: ${conflict.primary_conflict}`);
-    if (results.length < 3) takeaways.push('Note: Analysis based on limited engine coverage.');
     takeaways.push(...negativeSignals.slice(0, 3));
+    if (fragility.level === 'HIGH') takeaways.push(`Fragility: High (${fragility.reasons.join(', ')})`);
+    if (takeaways.length === 0) takeaways.push('No significant risk factors detected.');
 
-    // Recommendation
+    // 5. Recommendation
     let recommendation = '';
-    if (verdict === 'MALICIOUS') recommendation = 'Block immediately and investigate potential compromise.';
-    else if (verdict === 'SUSPICIOUS') recommendation = 'Treat with extreme caution; verify independently before interaction.';
-    else recommendation = 'Standard safety protocols apply; no immediate threat detected.';
+    if (verdict === 'MALICIOUS') recommendation = 'Block immediately. Do not interact.';
+    else if (verdict === 'SUSPICIOUS') recommendation = 'Treat with extreme caution. Verify source independently via a different channel.';
+    else recommendation = 'Proceed with standard caution. No immediate threats detected.';
 
     return {
         analyst_summary: summary,
