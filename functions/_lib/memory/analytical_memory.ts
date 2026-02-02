@@ -42,7 +42,8 @@ export async function consultMemory(env: Env, artifact: string): Promise<Analyti
             last_seen: new Date().toISOString(),
             volatility: 0,
             average_score: 0,
-            trend_classification: 'novel'
+            trend_classification: 'novel',
+            history_scores: []
         };
     }
 

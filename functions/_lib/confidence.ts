@@ -1,5 +1,5 @@
 import { EngineResult } from './engines/types';
-import { ConfidenceProfile, RiskVerdict, ConfidenceRange, ConflictResolution } from './types';
+import { ConfidenceProfile, RiskVerdict, ConfidenceRange, ConflictResolution, UsageRiskVerdict, FinalAssessment } from './types';
 
 export function calculateConfidence(results: EngineResult[]): ConfidenceProfile {
     // Filter out failed engines or those with 0 confidence
@@ -32,8 +32,9 @@ export function calculateConfidence(results: EngineResult[]): ConfidenceProfile 
 
     let score = avgEngineConfidence + agreementFactor + countFactor;
 
-    // Clamp 0-0.95 (Global Limit - NO 100% ALLOWED)
-    score = Math.max(0, Math.min(0.95, score));
+    // Engine 50 — Final Confidence Governor (NO 100%)
+    // Clamp 0-0.98
+    score = Math.max(0, Math.min(0.98, score));
 
     const reasons = [
         `Base engine confidence: ${(avgEngineConfidence * 100).toFixed(0)}%`,
@@ -50,48 +51,64 @@ export function calculateConfidence(results: EngineResult[]): ConfidenceProfile 
     };
 }
 
+/**
+ * Engine 60 & 69 — Confidence Governor & Calibration Table
+ * STRICTLY enforces confidence ranges based on Verdict.
+ */
 export function calibrateConfidence(
     rawConfidence: number,
     verdict: RiskVerdict,
     riskScore: number,
-    fragilityLevel: 'LOW' | 'MEDIUM' | 'HIGH' = 'LOW'
+    fragilityLevel: 'LOW' | 'MEDIUM' | 'HIGH' = 'LOW',
+    finalAssessment?: FinalAssessment
 ): number {
     let min = 0;
     let max = 0.95;
 
-    // Rule: LEGITIMATE: mostLikely ∈ [70–95]
-    // Rule: SUSPICIOUS: mostLikely ∈ [40–65] (Must never exceed 70%)
-    // Rule: MALICIOUS: mostLikely ∈ [65–90]
+    // SECTION 69 — CONFIDENCE CALIBRATION TABLE (MANDATORY)
+    // Verdict	Allowed Confidence Range
+    // Safe	85% – 99%
+    // Safe with reservations	70% – 90%
+    // Suspicious	40% – 70%
+    // High Risk	65% – 85%
+    // Malicious	75% – 98%
 
-    switch (verdict) {
-        case 'MALICIOUS':
-            min = 0.65;
-            max = 0.90;
-            break;
-        case 'SUSPICIOUS':
-            // Suspicious verdicts must never exceed 70% mostLikely
-            min = 0.40;
-            max = 0.65; // Keeping strictly under 70% as requested
-            break;
-        case 'BENIGN':
-            // LEGITIMATE
-            if (fragilityLevel === 'HIGH') {
-                 min = 0.50;
-                 max = 0.75;
-            } else {
-                 min = 0.70;
-                 max = 0.95;
-            }
-            break;
-        case 'UNKNOWN':
-            min = 0.0;
-            max = 0.50;
-            break;
+    if (verdict === 'MALICIOUS') {
+        if (riskScore >= 90) {
+             // Confirmed Malicious
+             min = 0.85;
+             max = 0.98;
+        } else {
+             // Likely Malicious / High Risk
+             min = 0.75;
+             max = 0.85;
+        }
+    } else if (verdict === 'SUSPICIOUS') {
+         // Suspicious
+         min = 0.40;
+         max = 0.70;
+    } else if (verdict === 'BENIGN') {
+        if (finalAssessment === 'TRUSTED_SERVICE_ABUSED' || fragilityLevel === 'HIGH' || fragilityLevel === 'MEDIUM') {
+             // Safe with reservations / Contextual Risk
+             min = 0.70;
+             max = 0.90;
+        } else {
+             // Safe / Legitimate
+             min = 0.85;
+             max = 0.98; // Cap at 98% (No 100%)
+        }
+    } else {
+        // UNKNOWN
+        min = 0.0;
+        max = 0.50;
     }
 
     // Scale raw (0-1) to target (min-max)
+    // We use the raw confidence as a position within the allowed range
     const calibrated = min + (rawConfidence * (max - min));
-    return Number(calibrated.toFixed(2));
+
+    // Final clamp to ensure we never break the Governor rules
+    return Number(Math.max(min, Math.min(max, calibrated)).toFixed(2));
 }
 
 export function calculateConfidenceRange(
@@ -129,8 +146,8 @@ export function calculateConfidenceRange(
 
     // Clamp absolute bounds
     // Rule: 100% confidence is forbidden
-    min = Math.max(0, min);
-    max = Math.min(0.99, max);
+    min = Math.max(0.1, min); // Never 0
+    max = Math.min(0.99, max); // Never 100
 
     // Ensure range isn't inverted
     if (min > max) min = max;

@@ -69,7 +69,7 @@ export class RiskEngine {
             throw new Error(`Backend responded with ${response.status}`);
         }
 
-        const data = await response.json();
+        const data = await response.json() as any;
         const result = data.result;
 
         // Map AnalysisResult (Backend) to RiskAssessment (Frontend)

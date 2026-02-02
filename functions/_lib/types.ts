@@ -179,10 +179,23 @@ export interface AnalystFlags {
   requires_human_attention: boolean;
 }
 
+export interface UserImpact {
+    worst_case: string;
+    likelihood: 'LOW' | 'MEDIUM' | 'HIGH';
+    what_to_do: string;
+}
+
+export interface UserGuidance {
+    immediate_action: string;
+    verification_steps: string[];
+}
+
 export interface AnalystInsight {
   analyst_summary: string;
   analyst_takeaways: string[];
   analyst_recommendation: string;
+  user_impact?: UserImpact; // New
+  user_guidance?: UserGuidance; // New
 }
 
 export interface AnalysisResponse {
@@ -194,6 +207,34 @@ export interface AnalysisResponse {
     code: string;
     message: string;
   };
+}
+
+// --- Sub-Engine Results (Deep Intel) ---
+
+export interface BehavioralTimelineResult {
+    behavioral_drift: 'NONE' | 'LOW' | 'HIGH';
+    timeline_confidence_penalty: number;
+    history_summary: string;
+}
+
+export interface InfrastructureIntelResult {
+    infrastructure_risk_score: number;
+    trusted_infra_abuse: boolean;
+    provider_name: string;
+    abuse_type?: string;
+}
+
+export interface CampaignMemoryResult {
+    campaign_id: string | null;
+    related_count: number;
+    confidence: number;
+}
+
+export interface CampaignCorrelationResult {
+    campaign_id?: string;
+    campaign_confidence: number;
+    related_artifacts_count: number;
+    campaign_name?: string;
 }
 
 // --- Analysis Result Structure ---

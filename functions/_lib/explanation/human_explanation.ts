@@ -1,5 +1,5 @@
 import { EngineResult } from '../engines/types';
-import { ConflictResolution, RiskVerdict, AnalystInsight, FragilityResult, ConfidenceRange, FinalAssessment } from '../types';
+import { ConflictResolution, RiskVerdict, AnalystInsight, FragilityResult, ConfidenceRange, FinalAssessment, UserImpact, UserGuidance } from '../types';
 import { ArtifactClass } from '../context/artifact_classifier';
 
 export function generateAnalystExplanation(
@@ -14,17 +14,27 @@ export function generateAnalystExplanation(
     artifactClass?: ArtifactClass
 ): AnalystInsight {
 
+    // 1. Gather Signals
+    const positiveSignals = results.filter(r => r.score < 20 && r.confidence > 0.5).map(r => r.summary || `${r.name} indicates safety`).filter(Boolean);
+    const negativeSignals = results.filter(r => r.score >= 40).map(r => r.summary || `${r.name} detected risks`).filter(Boolean);
+
+    // Infrastructure Root Handling
     if (artifactClass === 'INFRASTRUCTURE_ROOT') {
         return {
             analyst_summary: "This domain is a globally trusted infrastructure root. Content-level threat analysis is not applicable at this level.",
             analyst_takeaways: ["Infrastructure Trust Confirmed", "No content-level analysis performed"],
-            analyst_recommendation: "Proceed with standard caution. Infrastructure is verified."
+            analyst_recommendation: "Proceed with standard caution. Infrastructure is verified.",
+            user_impact: {
+                worst_case: "None expected from direct access.",
+                likelihood: "LOW",
+                what_to_do: "Safe to proceed."
+            },
+            user_guidance: {
+                immediate_action: "None required.",
+                verification_steps: []
+            }
         };
     }
-
-    // 1. Gather Signals
-    const positiveSignals = results.filter(r => r.score < 20 && r.confidence > 0.5).map(r => r.summary || `${r.name} indicates safety`).filter(Boolean);
-    const negativeSignals = results.filter(r => r.score >= 40).map(r => r.summary || `${r.name} detected risks`).filter(Boolean);
 
     const semantic = results.find(r => r.name === 'semantic');
     const reputation = results.find(r => r.name === 'reputation');
@@ -32,40 +42,99 @@ export function generateAnalystExplanation(
     const isTrusted = reputation && reputation.score < 10;
     const hasRisk = negativeSignals.length > 0;
 
-    // 2. Construct Summary (Contrastive Reasoning)
+    // 2. Construct Summary (Contrastive Reasoning & Legitimacy Language)
     let summary = '';
+    let userImpact: UserImpact;
+    let userGuidance: UserGuidance;
 
     // Special Case: Trusted Service Abuse (Root Trust Immunity)
     if (rootTrusted && finalAssessment === 'TRUSTED_SERVICE_ABUSED') {
-         summary = `This domain is a globally trusted and safe service. However, attackers frequently abuse trusted platforms to increase credibility. Therefore, this instance is classified as Trusted Service Abuse, not a malicious domain.`;
+         summary = `This domain is a globally trusted service (Google/Microsoft/etc.). However, attackers frequently abuse trusted platforms to host malicious content. This specific link exhibits patterns of abuse (e.g., phishing or fake login). Therefore, we classify this as Trusted Service Abuse.`;
+         userImpact = {
+             worst_case: "Credential theft or malware download via trusted form.",
+             likelihood: "HIGH",
+             what_to_do: "Do not enter credentials even if the site looks real."
+         };
+         userGuidance = {
+             immediate_action: "Close the page. Do not log in.",
+             verification_steps: ["Check the sender of the link.", "Navigate to the service manually."]
+         };
     }
     // "Although..., however..., therefore..."
     else if (conflict.conflict_detected) {
         // Conflict Scenario
         if (conflict.winning_signal === 'INTENT') {
-             summary = `Although the domain carries a reputable history, however ${conflict.reasoning.toLowerCase()} Because risk indicators outweigh reputation in this context, therefore we assess this as ${verdict}.`;
+             summary = `Although the domain carries a reputable history, malicious intent was detected in the content. Because explicit risk indicators outweigh historical reputation, we assess this as ${verdict}.`;
         } else {
-             summary = `Although ${conflict.primary_conflict ? 'conflicting signals were detected' : 'some indicators appear benign'}, however ${conflict.reasoning.toLowerCase()} Because risk indicators outweigh reputation in this context, therefore we assess this as ${verdict}.`;
+             summary = `Although conflicting signals were detected, the dominant risk factors suggest potential danger. We assess this as ${verdict} with moderate confidence.`;
         }
+
+        userImpact = {
+            worst_case: "Potential phishing or scam exposure.",
+            likelihood: "MEDIUM",
+            what_to_do: "Verify the source before proceeding."
+        };
+        userGuidance = {
+            immediate_action: "Pause and verify.",
+            verification_steps: ["Contact the sender via a different channel."]
+        };
+
     } else if (isTrusted && hasRisk) {
-        // Mixed Signals (but not flagged as conflict, or minor)
-        summary = `Although the domain has a trusted history, however recent behavioral anomalies were detected (${negativeSignals[0]}). Because behavioral shifts often indicate compromise, therefore the verdict is ${verdict}.`;
+        // Mixed Signals
+        summary = `Although the domain has a trusted history, recent behavioral anomalies were detected. Because behavioral shifts often indicate compromise, the verdict is ${verdict}.`;
+        userImpact = {
+            worst_case: "Interacting with a compromised legitimate site.",
+            likelihood: "MEDIUM",
+            what_to_do: "Exercise caution."
+        };
+        userGuidance = {
+             immediate_action: "Proceed with caution.",
+             verification_steps: ["Ensure you are on the correct path/subdomain."]
+        };
     } else if (verdict === 'MALICIOUS') {
         // Clear Malicious
         const reason = negativeSignals[0] ? negativeSignals[0].toLowerCase() : 'multiple risk indicators were found';
-        summary = `Primary analysis detected high-risk signals. Specifically, ${reason}. Therefore, we assess this artifact as MALICIOUS with ${(confidenceRange.mostLikely * 100).toFixed(0)}% confidence.`;
+        summary = `Primary analysis detected high-risk signals. Specifically, ${reason}. Therefore, we assess this artifact as MALICIOUS.`;
+        userImpact = {
+            worst_case: "Identity theft, financial loss, or malware infection.",
+            likelihood: "HIGH",
+            what_to_do: "Block immediately."
+        };
+        userGuidance = {
+            immediate_action: "Do not click. Block this domain.",
+            verification_steps: []
+        };
     } else if (verdict === 'SUSPICIOUS') {
         // Suspicious
         const reason = negativeSignals[0] ? negativeSignals[0].toLowerCase() : 'anomalous patterns were observed';
-        summary = `Although no definitive malicious payload was confirmed, however ${reason}. Therefore, we classify this as SUSPICIOUS.`;
+        summary = `Although no definitive malicious payload was confirmed, ${reason}. Therefore, we classify this as SUSPICIOUS.`;
+        userImpact = {
+            worst_case: "Potential exposure to scam or low-grade malware.",
+            likelihood: "MEDIUM",
+            what_to_do: "Avoid if possible."
+        };
+        userGuidance = {
+            immediate_action: "Verify source independently.",
+            verification_steps: ["Do not enter sensitive information."]
+        };
     } else {
         // Benign
         // Ensure uncertainty is communicated if needed
         if (fragility.level !== 'LOW' || confidenceRange.uncertainty !== 'LOW') {
-             summary = `Analysis detected no active threats. Although legitimate patterns are dominant, however ${fragility.reasons[0] ? fragility.reasons[0].toLowerCase() : 'visibility is limited'}. Therefore, we assess this as BENIGN but advise standard caution.`;
+             summary = `Analysis detected no active threats. Although legitimate patterns are dominant, ${fragility.reasons[0] ? fragility.reasons[0].toLowerCase() : 'visibility is limited'}. Therefore, we assess this as LIKELY LEGITIMATE but advise standard caution.`;
         } else {
-             summary = `Analysis detected no active threats. Although zero risk is impossible, however multiple engines confirm legitimate patterns. Therefore, we assess this as BENIGN.`;
+             summary = `Analysis detected no active threats. Multiple engines confirm legitimate patterns. Therefore, we assess this as LEGITIMATE.`;
         }
+
+        userImpact = {
+            worst_case: "Low risk of adverse outcome.",
+            likelihood: "LOW",
+            what_to_do: "Proceed normally."
+        };
+        userGuidance = {
+            immediate_action: "Proceed.",
+            verification_steps: []
+        };
     }
 
     // 3. Add Fragility Context & Epistemic Honesty (Why we might be wrong)
@@ -102,6 +171,8 @@ export function generateAnalystExplanation(
     return {
         analyst_summary: summary,
         analyst_takeaways: takeaways,
-        analyst_recommendation: recommendation
+        analyst_recommendation: recommendation,
+        user_impact: userImpact,
+        user_guidance: userGuidance
     };
 }
