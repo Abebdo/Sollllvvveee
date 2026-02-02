@@ -14,7 +14,11 @@ import { analyzeSemantic } from './engines/semantic.engine';
 import { analyzeFragility } from './analysis/fragility';
 import { applyContextualVerdict } from './context/contextual_verdict';
 
-import { consultMemory, updateMemory } from './memory/analytical_memory';
+import { consultMemory, updateMemory, consultCampaignMemory, updateCampaignMemory } from './memory/analytical_memory';
+import { analyzeBehavioralTimeline } from './analysis/behavioral_timeline';
+import { analyzeInfrastructure } from './analysis/infrastructure_intel.ts';
+import { analyzeCampaignCorrelation, generateCampaignFingerprint } from './analysis/campaign_correlation';
+
 import { AppError, ErrorCode, createErrorResponse } from './errors';
 import { analyzeTemporal } from './temporal';
 import { calculateConfidence, calibrateConfidence, calculateConfidenceRange } from './confidence';
@@ -206,10 +210,41 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         }
     }
 
-    // --- PHASE 3: Analytical Memory & Temporal ---
+    // --- PHASE 3: Analytical Memory, Temporal & Deep Intel ---
 
     const memory = await consultMemory(env, artifact);
     const temporalAnalysis = await analyzeTemporal(env, cacheKey, totalScore);
+
+    // Phase 1 (New): Behavioral & Infrastructure
+    const behavioral = analyzeBehavioralTimeline(totalScore, memory.history_scores);
+    const infrastructure = analyzeInfrastructure(artifact, type);
+
+    // Phase 2 (New): Campaign Correlation
+    const fingerprint = generateCampaignFingerprint(artifact);
+    const campaignMemory = await consultCampaignMemory(env, fingerprint);
+    const campaign = analyzeCampaignCorrelation(artifact, campaignMemory);
+
+    // Adjust Score based on Deep Intel
+    if (behavioral.behavioral_drift === 'HIGH') {
+        totalScore += 20;
+        whyItMatters.push(`Behavioral Drift: ${behavioral.history_summary}`);
+        riskTimeline.push({ stage: 'Behavioral Drift Adjustment', score: totalScore });
+    } else if (behavioral.behavioral_drift === 'LOW') {
+        totalScore += 10;
+        whyItMatters.push(`Behavioral degradation detected`);
+    }
+
+    if (infrastructure.infrastructure_risk_score > 50) {
+        totalScore += (infrastructure.infrastructure_risk_score * 0.2); // 20% weight
+        whyItMatters.push(`Infrastructure Risk: ${infrastructure.provider_name} (${infrastructure.abuse_type || 'Potential Abuse'})`);
+        riskTimeline.push({ stage: 'Infrastructure Risk Adjustment', score: totalScore });
+    }
+
+    if (campaign.campaign_confidence > 0.5) {
+        totalScore += 15;
+        whyItMatters.push(`Campaign Correlation: Linked to ${campaign.campaign_name}`);
+        riskTimeline.push({ stage: 'Campaign Correlation Adjustment', score: totalScore });
+    }
 
     // --- PHASE 4: Confidence Calibration & Contextual Verdict ---
 
@@ -226,6 +261,12 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     finalConfidence *= metaJudgment.confidence_adjustment;
     uncertaintyFlags.push(...(metaJudgment.warnings || []));
     uncertaintyFlags.push(...metaJudgment.contradictions || []); // Compat
+
+    // Apply Deep Intel Adjustments to Confidence
+    finalConfidence -= behavioral.timeline_confidence_penalty;
+    if (behavioral.timeline_confidence_penalty > 0) {
+        uncertaintyFlags.push(`Confidence reduced due to behavioral instability (${(behavioral.timeline_confidence_penalty * 100).toFixed(0)}%)`);
+    }
 
     // Apply Fragility Adjustments
     if (fragility.level === 'HIGH') {
@@ -349,6 +390,11 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         risk_timeline: riskTimeline,
         confidence_range: confidenceRange,
 
+        // Competitive Intel Fields
+        behavioral_timeline: behavioral,
+        infrastructure_intel: infrastructure,
+        campaign_correlation: campaign,
+
         // Phase 6 Fields
         conflict_resolution: conflict,
         analyst_flags: analystFlags,
@@ -383,6 +429,13 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     // --- PHASE 6: Persistence ---
 
     await updateMemory(env, artifact, totalScore);
+
+    // Update Campaign Memory
+    if (totalScore > 50) {
+        // Only track potential bad patterns to save space/noise?
+        // Or track all for frequency analysis? Let's track all.
+        await updateCampaignMemory(env, fingerprint, artifact);
+    }
 
     try {
         await env.ANALYSIS_CACHE.put(cacheKey, JSON.stringify(analysisResult), { expirationTtl: 86400 });

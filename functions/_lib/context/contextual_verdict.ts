@@ -55,12 +55,33 @@ export function applyContextualVerdict(
          // If malicious intent was detected elsewhere, this context reinforces it.
     }
 
-    // Rule: Social Engineering Indicators
-    if (source.includes('social_engineering') || source.includes('urgency') || source.includes('sms')) {
+    // Rule: Social Engineering Indicators (SMS, WhatsApp, Urgency)
+    // Mobile vectors (SMS/WhatsApp) have higher click-through rates and smaller screens (less scrutiny),
+    // so we treat them with higher baseline suspicion.
+    if (source.includes('social_engineering') || source.includes('urgency') || source.includes('sms') || source.includes('whatsapp')) {
         if (originalVerdict === 'BENIGN') {
             result.adjusted_verdict = 'SUSPICIOUS';
             result.context_downgrade = true;
-            result.context_notes.push('Downgraded due to social engineering indicators in context');
+            result.context_notes.push('Downgraded due to high-risk delivery vector (SMS/Social Engineering)');
+        }
+    }
+
+    // Rule: User Click (Active Interaction)
+    // If a user explicitly clicked this (vs a passive scan), the risk of compromise is imminent.
+    // We increase sensitivity to minor anomalies.
+    if (source.includes('user_click')) {
+        if (originalVerdict === 'BENIGN') {
+            // We don't downgrade purely on click, but we add a note to be careful
+            result.context_notes.push('User-initiated click: strict enforcement active');
+        }
+    }
+
+    // Rule: Aggressive Redirects (Meta-Refresh, JS Redirects)
+    if (source.includes('meta_refresh') || source.includes('js_redirect')) {
+        if (originalVerdict === 'BENIGN') {
+            result.adjusted_verdict = 'SUSPICIOUS';
+            result.context_downgrade = true;
+            result.context_notes.push('Downgraded due to aggressive client-side redirection');
         }
     }
 

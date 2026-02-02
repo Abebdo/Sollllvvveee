@@ -7,6 +7,7 @@ export interface AnalyticalMemoryResult {
     volatility: number; // Variance of score
     average_score: number;
     trend_classification: 'stable' | 'volatile' | 'escalating' | 'novel';
+    history_scores: number[];
 }
 
 interface MemoryRecord {
@@ -70,7 +71,8 @@ export async function consultMemory(env: Env, artifact: string): Promise<Analyti
         last_seen: new Date(record.last_seen).toISOString(),
         volatility: parseFloat(stdDev.toFixed(2)),
         average_score: parseFloat(avg.toFixed(2)),
-        trend_classification: trend
+        trend_classification: trend,
+        history_scores: record.scores
     };
 }
 
@@ -110,4 +112,78 @@ async function getMemoryKey(artifact: string): Promise<string> {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     return `memory:v1:${hashHex}`;
+}
+
+export interface CampaignMemoryResult {
+    campaign_id: string | null;
+    related_count: number;
+    confidence: number;
+}
+
+interface CampaignRecord {
+    count: number;
+    first_seen: number;
+    last_seen: number;
+    artifacts: string[]; // Store last 5 artifacts
+}
+
+export async function consultCampaignMemory(env: Env, fingerprint: string): Promise<CampaignMemoryResult> {
+    const key = `campaign:v1:${fingerprint}`;
+    let dataStr: string | null = null;
+
+    try {
+        dataStr = await env.ANALYSIS_CACHE.get(key);
+    } catch (e) {
+        // Fail open
+    }
+
+    if (!dataStr) {
+        return {
+            campaign_id: null,
+            related_count: 0,
+            confidence: 0
+        };
+    }
+
+    const record: CampaignRecord = JSON.parse(dataStr);
+
+    // Confidence based on count and recency
+    let confidence = 0;
+    if (record.count > 5) confidence = 0.6;
+    if (record.count > 20) confidence = 0.8;
+
+    return {
+        campaign_id: fingerprint,
+        related_count: record.count,
+        confidence
+    };
+}
+
+export async function updateCampaignMemory(env: Env, fingerprint: string, artifact: string) {
+    const key = `campaign:v1:${fingerprint}`;
+    let record: CampaignRecord;
+    const now = Date.now();
+
+    try {
+        const dataStr = await env.ANALYSIS_CACHE.get(key);
+        if (dataStr) {
+            record = JSON.parse(dataStr);
+            record.last_seen = now;
+            record.count += 1;
+            if (!record.artifacts.includes(artifact)) {
+                record.artifacts.push(artifact);
+                if (record.artifacts.length > 5) record.artifacts.shift();
+            }
+        } else {
+            record = {
+                first_seen: now,
+                last_seen: now,
+                count: 1,
+                artifacts: [artifact]
+            };
+        }
+        await env.ANALYSIS_CACHE.put(key, JSON.stringify(record), { expirationTtl: 2592000 });
+    } catch (e) {
+        console.error('Campaign memory update failed', e);
+    }
 }
