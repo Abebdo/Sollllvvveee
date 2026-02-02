@@ -138,6 +138,29 @@ export interface SelfCritique {
   missing_information: string[];
 }
 
+// --- Conflict Resolution & Analyst Insight ---
+
+export interface ConflictResolution {
+  conflict_detected: boolean;
+  primary_conflict: string | null;
+  winning_signal: 'REPUTATION' | 'INTENT' | 'BEHAVIOR' | 'STRUCTURE' | 'NONE';
+  reasoning: string;
+  confidence_adjustment: number;
+}
+
+export interface AnalystFlags {
+  reputation_abuse: boolean;
+  high_fragility: boolean;
+  conflicting_signals: boolean;
+  requires_human_attention: boolean;
+}
+
+export interface AnalystInsight {
+  analyst_summary: string;
+  analyst_takeaways: string[];
+  analyst_recommendation: string;
+}
+
 export interface AnalysisResponse {
   id: string;
   timestamp: string;
@@ -197,6 +220,11 @@ export interface AnalysisResult {
   contextual_verdict?: ContextualVerdict;
   risk_timeline?: RiskTimelineStage[];
   confidence_range?: ConfidenceRange;
+
+  // Phase 6: Conflict & Analyst Insight
+  conflict_resolution?: ConflictResolution;
+  analyst_flags?: AnalystFlags;
+  analyst_insight?: AnalystInsight;
 
   // Explainability
   explanation: {

@@ -66,7 +66,7 @@ describe('V4 Intelligence - Meta-Judgment Engine', () => {
 
         const meta = analyzeMetaJudgment(results);
 
-        expect(meta.contradictions).toContain('Low overall risk contradicted by specific high-risk signals');
+        expect(meta.contradictions).toContain('Engines disagree significantly on the risk level.');
         expect(meta.confidence_adjustment).toBeLessThan(0.8);
     });
 

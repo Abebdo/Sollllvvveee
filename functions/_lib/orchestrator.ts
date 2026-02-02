@@ -1,4 +1,4 @@
-import { Env, AnalysisRequest, AnalysisResult, RiskVerdict, FeatureResult, ApiResponse, RiskTimelineStage } from './types';
+import { Env, AnalysisRequest, AnalysisResult, RiskVerdict, FeatureResult, ApiResponse, RiskTimelineStage, AnalystFlags, AnalystInsight, ConflictResolution } from './types';
 import { validateInput, sanitizeInput, classifyArtifact } from './validation';
 import { RateLimiter } from './ratelimit';
 import {
@@ -21,6 +21,9 @@ import { calculateConfidence } from './confidence';
 import { buildReasoningGraph } from './reasoning';
 import { CognitiveTraceStep } from './cognitive_trace';
 import { SelfCritique } from './types';
+import { analyzeConflict } from './analysis/conflict_resolution';
+import { generateAnalystExplanation } from './explanation/human_explanation';
+import { expandUrl } from './analysis/url_expansion';
 
 export const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -76,9 +79,19 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         return createErrorResponse(new AppError(ErrorCode.VALIDATION_INVALID_INPUT, validation.error || 'Invalid input', 400));
     }
 
-    const artifact = sanitizeInput(rawArtifact);
-    const type = classifyArtifact(artifact);
+    let artifact = sanitizeInput(rawArtifact);
+    let type = classifyArtifact(artifact);
     const context = body.context;
+
+    // URL Expansion
+    if (type === 'url') {
+        const expanded = await expandUrl(artifact);
+        if (expanded !== artifact) {
+            artifact = expanded;
+            // Re-classify just in case, though likely still URL
+             type = classifyArtifact(artifact);
+        }
+    }
 
     // 4. Cache Lookup
     const cacheKey = `v4:analysis:${type}:${encodeURIComponent(artifact)}`;
@@ -176,10 +189,22 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     const riskTimeline: RiskTimelineStage[] = [];
     riskTimeline.push({ stage: 'Initial Aggregation', score: totalScore });
 
-    // --- PHASE 2: Meta-Judgment & Fragility ---
+    // --- PHASE 2: Conflict Resolution, Meta-Judgment & Fragility ---
 
+    const conflict = analyzeConflict(validEngineResults);
     const metaJudgment = analyzeMetaJudgment(validEngineResults);
     const fragility = analyzeFragility(validEngineResults);
+
+    // Apply Conflict Adjustments to Score
+    if (conflict.conflict_detected && conflict.winning_signal !== 'REPUTATION') {
+        // If conflict detected and Reputation lost, we must ensure the score reflects the risk
+        // For 'INTENT' or 'BEHAVIOR' wins, we ensure a minimum score of 65 (Suspicious/Malicious)
+        if (totalScore < 60) {
+            totalScore = 65;
+            whyItMatters.unshift(`Score adjusted due to conflict: ${conflict.primary_conflict}`);
+            riskTimeline.push({ stage: 'Conflict Resolution Adjustment', score: totalScore });
+        }
+    }
 
     // --- PHASE 3: Analytical Memory & Temporal ---
 
@@ -190,6 +215,12 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     let finalConfidence = calculateConfidence(validEngineResults).score;
     const uncertaintyFlags: string[] = [];
+
+    // Apply Conflict Adjustments to Confidence
+    finalConfidence *= conflict.confidence_adjustment;
+    if (conflict.conflict_detected) {
+        uncertaintyFlags.push(`Confidence reduced due to conflict: ${conflict.primary_conflict}`);
+    }
 
     // Apply Meta Adjustments
     finalConfidence *= metaJudgment.confidence_adjustment;
@@ -226,6 +257,23 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     else if (totalScore > 50) verdict = 'SUSPICIOUS';
     else verdict = 'BENIGN';
 
+    // KILL ABSOLUTE TRUST: Downgrade 'BENIGN' if malicious intent is detected, even if score < 50 (unlikely due to adjustment above, but safety net)
+    const semanticResult = validEngineResults.find(r => r.name === 'semantic');
+    const semanticIntentData = semanticResult ? (semanticResult as any).semantic_intent : undefined;
+
+    if (verdict === 'BENIGN' && semanticIntentData && semanticIntentData.intent === 'MALICIOUS') {
+        verdict = 'SUSPICIOUS';
+        totalScore = Math.max(totalScore, 55);
+        riskTimeline.push({ stage: 'Absolute Trust Override', score: totalScore });
+        whyItMatters.unshift("Verdict downgraded to SUSPICIOUS despite low score due to malicious intent detection.");
+    }
+
+    // Also apply logic for conflict result
+    if (conflict.conflict_detected && conflict.winning_signal === 'INTENT' && verdict === 'BENIGN') {
+        verdict = 'SUSPICIOUS';
+        totalScore = Math.max(totalScore, 55);
+    }
+
     // Contextual Verdict
     const contextDecision = applyContextualVerdict(verdict, context?.source);
     if (contextDecision.context_downgrade) {
@@ -239,7 +287,16 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     const reasoningGraph = buildReasoningGraph(aggregatedFeatures, verdict);
 
-    // --- PHASE 5: Self-Critique & Output Construction ---
+    // --- PHASE 5: Self-Critique, Analyst Insight & Output Construction ---
+
+    const analystFlags: AnalystFlags = {
+        reputation_abuse: conflict.conflict_detected && conflict.primary_conflict?.includes('Trusted Infrastructure') || false,
+        high_fragility: fragility.level === 'HIGH',
+        conflicting_signals: conflict.conflict_detected,
+        requires_human_attention: conflict.conflict_detected || fragility.level === 'HIGH' || (verdict === 'SUSPICIOUS' && totalScore < 70)
+    };
+
+    const analystInsight = generateAnalystExplanation(validEngineResults, conflict, verdict, totalScore);
 
     const selfCritique: SelfCritique = {
         assumptions_made: [
@@ -259,20 +316,16 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     const confidenceLevel = finalConfidence > 0.8 ? 'high' : (finalConfidence > 0.5 ? 'medium' : 'low');
 
-    // Semantic Intent Extraction
-    const semanticResult = validEngineResults.find(r => r.name === 'semantic');
-    const semanticIntentData = semanticResult ? (semanticResult as any).semantic_intent : undefined;
-
-    // Explanation Construction
+    // Explanation Construction (Standard + Analyst Insight)
     const explanation = {
-        summary: whyItMatters[0] || 'No significant indicators found.',
+        summary: analystInsight.analyst_summary, // Use Analyst Summary
         positive_factors: validEngineResults.filter(r => r.score < 20).map(r => r.summary || `${r.name}: Low Risk`),
         negative_factors: validEngineResults.filter(r => r.score >= 20).map(r => r.summary || `${r.name}: High Risk`),
         weights: validEngineResults.reduce((acc, r) => ({ ...acc, [r.name]: r.score }), {}),
         reasoning_steps: metaJudgment.warnings || [],
-        primaryFactors: Object.values(aggregatedFeatures).map(f => f.description),
-        technicalAnalysis: whyItMatters.join(' '),
-        recommendedActions: verdict === 'MALICIOUS' ? ['Block Traffic', 'Quarantine Asset'] : (verdict === 'SUSPICIOUS' ? ['Monitor Activity', 'Verify Source'] : ['No Action Required'])
+        primaryFactors: analystInsight.analyst_takeaways, // Use Analyst Takeaways
+        technicalAnalysis: whyItMatters.join('\n'),
+        recommendedActions: [analystInsight.analyst_recommendation] // Use Analyst Recommendation
     };
 
     const analysisResult: AnalysisResult = {
@@ -295,6 +348,11 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         risk_timeline: riskTimeline,
         confidence_range: confidenceRange,
 
+        // Phase 6 Fields
+        conflict_resolution: conflict,
+        analyst_flags: analystFlags,
+        analyst_insight: analystInsight,
+
         // Epistemic Intelligence
         analysis_quality: {
             confidence_level: confidenceLevel,
@@ -310,7 +368,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
         signals: Array.from(new Set(signals)),
         why_it_matters: whyItMatters,
-        summary: whyItMatters[0] || 'No significant indicators found.',
+        summary: analystInsight.analyst_summary, // Use Analyst Summary
         features: aggregatedFeatures,
         explanation,
         meta: {
@@ -354,7 +412,8 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         verdict,
         score: totalScore,
         confidence: finalConfidence,
-        meta_judgment: metaJudgment
+        meta_judgment: metaJudgment,
+        conflict: conflict.conflict_detected
     }));
 
     return new Response(JSON.stringify(mixedResponse), {
