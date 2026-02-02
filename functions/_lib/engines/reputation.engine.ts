@@ -21,16 +21,13 @@ export function analyzeReputation(artifact: string, type: ArtifactType): EngineR
     const signals: string[] = [];
     const trace: CognitiveTraceStep[] = [];
     let score = 0;
-
-    // Default neutral
-    let confidence = 0.5;
+    let confidence = 0.5; // Calculated below
 
     if (type === 'domain' || type === 'url') {
         let domain = artifact;
         if (type === 'url') {
-            try {
-                domain = new URL(artifact).hostname;
-            } catch (e) { }
+            // STRICT: No error swallowing
+            domain = new URL(artifact).hostname;
         }
 
         // Allowlist

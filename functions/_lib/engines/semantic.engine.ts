@@ -31,47 +31,43 @@ export async function analyzeSemantic(artifact: string, type: ArtifactType): Pro
     // In a real environment, we would fetch. Here we attempt it but fail gracefully.
     // NOTE: This runs in Cloudflare Workers, so fetch IS available.
     if (type === 'url' && (artifact.startsWith('http://') || artifact.startsWith('https://'))) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 1500); // 1.5s timeout fast
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 1500); // 1.5s timeout fast
 
-            const resp = await fetch(artifact, {
-                method: 'GET',
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (compatible; Solveya/1.0; +https://solveya.com/bot)',
-                    'Accept': 'text/html'
-                },
-                redirect: 'follow',
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
+        const resp = await fetch(artifact, {
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (compatible; Solveya/1.0; +https://solveya.com/bot)',
+                'Accept': 'text/html'
+            },
+            redirect: 'follow',
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
 
-            if (resp.ok) {
-                const text = await resp.text();
+        if (resp.ok) {
+            const text = await resp.text();
 
-                // HTML Form Detection
-                const hasForm = /<form/i.test(text);
-                const hasPassword = /type=["']?password["']?/i.test(text);
-                const hasEmailInput = /type=["']?email["']?/i.test(text);
+            // HTML Form Detection
+            const hasForm = /<form/i.test(text);
+            const hasPassword = /type=["']?password["']?/i.test(text);
+            const hasEmailInput = /type=["']?email["']?/i.test(text);
 
-                if (hasForm) {
-                    if (hasPassword) {
-                        indicators.push('Credential entry field (password) detected');
-                        score += 65;
-                        intent = 'MALICIOUS';
-                        // If it was already suspicious (trusted infra), this confirms abuse.
-                    } else if (hasEmailInput) {
-                        indicators.push('Email collection field detected');
-                        score += 20;
-                        if (intent === 'BENIGN') intent = 'SUSPICIOUS';
-                    } else {
-                        indicators.push('HTML Form detected');
-                        score += 10;
-                    }
+            if (hasForm) {
+                if (hasPassword) {
+                    indicators.push('Credential entry field (password) detected');
+                    score += 65;
+                    intent = 'MALICIOUS';
+                    // If it was already suspicious (trusted infra), this confirms abuse.
+                } else if (hasEmailInput) {
+                    indicators.push('Email collection field detected');
+                    score += 20;
+                    if (intent === 'BENIGN') intent = 'SUSPICIOUS';
+                } else {
+                    indicators.push('HTML Form detected');
+                    score += 10;
                 }
             }
-        } catch (e) {
-            // Fetch failed or timed out - ignore, relies on URL heuristics
         }
     }
 

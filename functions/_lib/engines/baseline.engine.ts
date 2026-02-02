@@ -71,13 +71,10 @@ export function analyzeBaseline(artifact: string, type: ArtifactType): EngineRes
     let path = '/';
 
     if (type === 'url') {
-        try {
-            const url = new URL(artifact);
-            domain = url.hostname;
-            path = url.pathname + url.search;
-        } catch (e) {
-            // Invalid URL, fallback to raw string analysis
-        }
+        // STRICT: No error swallowing
+        const url = new URL(artifact);
+        domain = url.hostname;
+        path = url.pathname + url.search;
     } else if (type === 'domain') {
         domain = artifact;
     }

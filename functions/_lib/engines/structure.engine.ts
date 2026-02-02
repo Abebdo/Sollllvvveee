@@ -26,11 +26,8 @@ export function analyzeStructure(artifact: string, type: ArtifactType): EngineRe
     if (type === 'domain' || type === 'url') {
         let domain = artifact;
         if (type === 'url') {
-            try {
-                domain = new URL(artifact).hostname;
-            } catch (e) {
-                // Ignore
-            }
+            // STRICT: No error swallowing
+            domain = new URL(artifact).hostname;
         }
 
         // Calculate entropy on the SLD (without TLD) if possible for better DGA detection

@@ -292,7 +292,8 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     }
 
     // 8. Verdict Logic
-    let verdict: RiskVerdict = 'UNKNOWN';
+    let verdict: RiskVerdict;
+
     if (totalScore > 80) verdict = 'MALICIOUS';
     else if (totalScore > 50) verdict = 'SUSPICIOUS';
     else verdict = 'BENIGN';
@@ -448,6 +449,9 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         }
     };
 
+    // VALIDATION: Ensure Atomic Analysis
+    validateAnalysisResult(analysisResult);
+
     // Persistence
     console.log('[Analysis] Persisting results');
     await updateMemory(env, artifact, totalScore);
@@ -468,4 +472,16 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     }), {
         headers: { ...securityHeaders, ...rlHeaders, 'Content-Type': 'application/json' } as any
     });
+}
+
+function validateAnalysisResult(result: AnalysisResult) {
+    if (!result.verdict || result.verdict === 'UNKNOWN') {
+        throw new AppError(ErrorCode.INTERNAL_ERROR, "Analysis failed: Invalid verdict generated");
+    }
+    if (!result.confidence || result.confidence <= 0) {
+        throw new AppError(ErrorCode.INTERNAL_ERROR, "Analysis failed: Invalid confidence score");
+    }
+    if (!result.explanation || !result.explanation.summary) {
+        throw new AppError(ErrorCode.INTERNAL_ERROR, "Analysis failed: Missing explanation");
+    }
 }

@@ -86,9 +86,8 @@ export function calibrateConfidence(
          min = 0.85;
          max = 0.98;
     } else {
-        // UNKNOWN - Map to Suspicious/Low range
-        min = 0.40;
-        max = 0.50;
+        // FAIL HARD on UNKNOWN or Invalid Verdict
+        throw new Error(`Confidence calibration failed: Invalid verdict '${verdict}'`);
     }
 
     // Scale raw (0-1) to target (min-max)
