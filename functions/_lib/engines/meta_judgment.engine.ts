@@ -24,18 +24,24 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
 
     // 1. Engine Families
     const families = {
-        heuristic: ['heuristic'],
         reputation: ['reputation'],
-        static: ['structure', 'context'],
-        semantic: ['semantic', 'baseline']
+        heuristic: ['heuristic', 'structure', 'baseline'],
+        semantic: ['semantic'],
+        context: ['context']
     };
 
     const presentFamilies = new Set<string>();
+    const familyScores: Record<string, number[]> = {};
+
     validResults.forEach(r => {
-        if (families.heuristic.includes(r.name)) presentFamilies.add('heuristic');
-        else if (families.reputation.includes(r.name)) presentFamilies.add('reputation');
-        else if (families.static.includes(r.name)) presentFamilies.add('static');
-        else if (families.semantic.includes(r.name)) presentFamilies.add('semantic');
+        let fam = 'heuristic'; // Default
+        if (families.reputation.includes(r.name)) fam = 'reputation';
+        else if (families.semantic.includes(r.name)) fam = 'semantic';
+        else if (families.context.includes(r.name)) fam = 'context';
+
+        presentFamilies.add(fam);
+        if (!familyScores[fam]) familyScores[fam] = [];
+        familyScores[fam].push(r.score);
     });
 
     const engine_family_diversity = parseFloat((presentFamilies.size / 4).toFixed(2));
@@ -120,6 +126,23 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
         warnings.push('High agreement from low diversity sources (Echo Chamber Effect).');
         adjustment *= 0.85;
         echo_chamber_risk = 'HIGH';
+    }
+
+    // Rule: Family Consensus Check (Fake Consensus)
+    // If we have multiple engines but they are all in the same family (e.g. 3 heuristic engines agreeing),
+    // we shouldn't treat this as independent confirmation.
+    for (const [fam, scores] of Object.entries(familyScores)) {
+        if (scores.length > 1 && presentFamilies.size === 1) {
+            // High internal agreement within a single family, but no external validation
+            const famAvg = scores.reduce((a, b) => a + b, 0) / scores.length;
+            const famVar = scores.reduce((a, b) => a + Math.pow(b - famAvg, 2), 0) / scores.length;
+
+            if (famVar < 10) { // High agreement
+                warnings.push(`Verdict relies solely on ${fam} analysis without cross-validation.`);
+                adjustment *= 0.8;
+                echo_chamber_risk = 'HIGH';
+            }
+        }
     }
 
     // Disagreement Level (Legacy)

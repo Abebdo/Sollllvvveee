@@ -52,11 +52,20 @@ export function generateAnalystExplanation(
         }
     }
 
-    // 3. Add Fragility Context (Explicitly surfacing brittleness)
+    // 3. Add Fragility Context & Epistemic Honesty (Why we might be wrong)
     if (fragility.level === 'HIGH') {
         summary += ` This conclusion is FRAGILE due to ${fragility.reasons[0] ? fragility.reasons[0].toLowerCase() : 'limited visibility'}.`;
     } else if (fragility.level === 'MEDIUM') {
         summary += ` This conclusion has MODERATE stability due to ${fragility.reasons[0] ? fragility.reasons[0].toLowerCase() : 'partial data coverage'}.`;
+    }
+
+    // Explicitly state what could change the verdict (Counterfactual)
+    if (confidenceRange.uncertainty !== 'LOW') {
+        if (verdict === 'BENIGN') {
+             summary += ` A shift in behavioral patterns or detection of credential-harvesting intent would immediately escalate this to MALICIOUS.`;
+        } else if (verdict === 'MALICIOUS') {
+             summary += ` Verification of ownership or removal of the flagged content would require a re-assessment.`;
+        }
     }
 
     // 4. Takeaways

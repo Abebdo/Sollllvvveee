@@ -228,6 +228,13 @@ export interface AnalysisResult {
   risk_timeline?: RiskTimelineStage[];
   confidence_range?: ConfidenceRange;
 
+  // Phase 1: Behavioral & Infrastructure
+  behavioral_timeline?: BehavioralTimelineResult;
+  infrastructure_intel?: InfrastructureIntelResult;
+
+  // Phase 2: Campaign Correlation
+  campaign_correlation?: CampaignCorrelationResult;
+
   // Phase 6: Conflict & Analyst Insight
   conflict_resolution?: ConflictResolution;
   analyst_flags?: AnalystFlags;
