@@ -192,21 +192,25 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         );
     }
 
-    const [results, memoryResult] = await Promise.all([
-        Promise.allSettled(enginePromises.map(async (e) => {
+    console.log(`[Analysis] Executing ${enginePromises.length} parallel engines...`);
+
+    // STRICT EXECUTION: Promise.all instead of allSettled
+    // If ANY engine fails, the entire analysis must fail.
+    const [engineResults, memoryResult] = await Promise.all([
+        Promise.all(enginePromises.map(async (e) => {
             const t0 = Date.now();
-            try {
-                const res = await e.fn();
-                return { ...res, _meta: { name: e.name, duration: Date.now() - t0 } };
-            } catch (err) {
-                console.error(`Engine ${e.name} failed`, err);
-                return null;
+            // We intentionally do NOT catch errors here.
+            // A failure in a core engine is a failure of the system.
+            const res = await e.fn();
+            if (!res) {
+                throw new Error(`Engine ${e.name} returned empty/null result`);
             }
+            return { ...res, _meta: { name: e.name, duration: Date.now() - t0 } };
         })),
         consultMemory(env, artifact)
     ]);
 
-    console.log('[Analysis] Engines and Memory lookup completed');
+    console.log('[Analysis] Engines and Memory lookup completed successfully');
     const memory = memoryResult;
 
     // 3. Aggregation
@@ -223,18 +227,16 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         _meta: { name: 'root_trust', duration: 0 }
     } as any);
 
-    for (const result of results) {
-        if (result.status === 'fulfilled' && result.value) {
-            const r = result.value as (EngineResult & { _meta: any });
-            validEngineResults.push(r);
+    // Process Parallel Results
+    for (const r of engineResults) {
+        validEngineResults.push(r);
 
-            if (r.features) r.features.forEach(f => aggregatedFeatures[f.id] = f);
-            if (r.signals) signals.push(...r.signals);
-            if (r.trace) cognitiveTrace.push(...r.trace);
+        if (r.features) r.features.forEach((f: FeatureResult) => aggregatedFeatures[f.id] = f);
+        if (r.signals) signals.push(...r.signals);
+        if (r.trace) cognitiveTrace.push(...r.trace);
 
-            if (r.score > totalScore) totalScore = r.score;
-            if (r.summary) whyItMatters.push(`${r.name}: ${r.summary}`);
-        }
+        if (r.score > totalScore) totalScore = r.score;
+        if (r.summary) whyItMatters.push(`${r.name}: ${r.summary}`);
     }
 
     const riskTimeline: RiskTimelineStage[] = [];
