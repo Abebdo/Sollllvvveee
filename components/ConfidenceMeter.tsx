@@ -2,13 +2,29 @@ import React from 'react';
 import { cn } from '../lib/utils';
 
 interface ConfidenceMeterProps {
-  percentage: number;
+  percentage: number | null;
   range?: { min: number; max: number; mostLikely?: number; uncertainty?: 'LOW' | 'MEDIUM' | 'HIGH' };
   size?: 'sm' | 'md' | 'lg';
   className?: string;
 }
 
 export const ConfidenceMeter: React.FC<ConfidenceMeterProps> = ({ percentage, range, size = 'md', className }) => {
+  if (percentage === null) {
+      return (
+         <div className={cn('w-full', className)}>
+           <div className="flex justify-between items-end mb-2">
+             <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Confidence</span>
+             <span className="text-xs font-mono text-slate-500">N/A</span>
+           </div>
+           <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden relative">
+             {/* Placeholder for no data */}
+             <div className="h-full w-full bg-slate-700/20" />
+           </div>
+           <div className="text-[10px] text-slate-500 mt-1 font-mono text-center">Unavailable</div>
+         </div>
+      );
+  }
+
   let colorClass = 'bg-risk-critical'; // Red
   if (percentage > 30) colorClass = 'bg-risk-medium'; // Amber
   if (percentage > 60) colorClass = 'bg-primary'; // Cyan

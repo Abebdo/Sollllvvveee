@@ -1,6 +1,6 @@
 import React from 'react';
 import { RiskAssessment } from '../types';
-import { Activity, Zap } from 'lucide-react';
+import { Activity, Zap, AlertTriangle } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { RiskBadge } from './RiskBadge';
@@ -14,6 +14,40 @@ interface RiskDisplayProps {
 }
 
 export const RiskDisplay: React.FC<RiskDisplayProps> = ({ assessment, onReset }) => {
+  // 1. FAIL-SAFE STATE: Backend Unavailable
+  if (assessment.status === 'NO_ANALYSIS') {
+     return (
+        <div className="w-full max-w-5xl mx-auto pb-20 animate-slide-up">
+          <Card variant="elevated" padding="lg" className="relative overflow-hidden border-slate-700 bg-slate-900/50">
+             <div className="relative z-10 flex flex-col items-center text-center py-10 space-y-6">
+                <div className="w-20 h-20 rounded-full bg-slate-800 flex items-center justify-center mb-2">
+                   <AlertTriangle className="text-slate-400" size={40} />
+                </div>
+
+                <h1 className="text-3xl font-bold text-white tracking-tight">
+                   {assessment.primary_hypothesis}
+                </h1>
+
+                <p className="text-lg text-slate-300 leading-relaxed max-w-2xl">
+                   {assessment.summary}
+                </p>
+
+                <div className="pt-6">
+                   <Button
+                      onClick={onReset}
+                      variant="secondary"
+                      className="px-8 py-3 bg-slate-800 hover:bg-slate-700 text-white border-slate-600"
+                   >
+                      Try Again
+                   </Button>
+                </div>
+             </div>
+          </Card>
+        </div>
+     );
+  }
+
+  // 2. NORMAL STATE
   return (
     <div className="w-full max-w-5xl mx-auto pb-20 animate-slide-up">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

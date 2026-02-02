@@ -13,7 +13,7 @@ export interface RiskArgument {
 }
 
 export interface UncertaintyProfile {
-  confidence_percentage: number;
+  confidence_percentage: number | null;
   confidence_range?: {
     min: number;
     max: number;
@@ -25,6 +25,7 @@ export interface UncertaintyProfile {
 }
 
 export interface RiskAssessment {
+  status?: 'SUCCESS' | 'ERROR' | 'NO_ANALYSIS';
   risk_level: RiskLevel;
   primary_hypothesis: string;
   summary: string;
