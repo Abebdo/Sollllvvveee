@@ -491,8 +491,9 @@ function validateAnalysisResult(result: AnalysisResult) {
     }
 
     // 2. Confidence Integrity (Strict Range)
-    if (typeof result.confidence !== 'number' || result.confidence <= 0 || result.confidence > 1.0) {
-        throw new AppError(ErrorCode.INTERNAL_ERROR, `Analysis failed: Invalid confidence score ${result.confidence}`);
+    // Confidence Governor guarantees min 0.40. Any lower means governance failed.
+    if (typeof result.confidence !== 'number' || result.confidence < 0.40 || result.confidence > 1.0) {
+        throw new AppError(ErrorCode.INTERNAL_ERROR, `Analysis failed: Invalid confidence score ${result.confidence} (Must be 0.40 - 1.0)`);
     }
 
     // 3. Signal Integrity
@@ -507,7 +508,8 @@ function validateAnalysisResult(result: AnalysisResult) {
     }
 
     // 5. Final Assessment Integrity
-    if (!result.final_assessment) {
-        throw new AppError(ErrorCode.INTERNAL_ERROR, "Analysis failed: Missing final assessment");
+    const validAssessments: FinalAssessment[] = ['SAFE', 'SUSPICIOUS', 'TRUSTED_SERVICE_ABUSED', 'MALICIOUS_SERVICE'];
+    if (!result.final_assessment || !validAssessments.includes(result.final_assessment)) {
+        throw new AppError(ErrorCode.INTERNAL_ERROR, `Analysis failed: Invalid final assessment '${result.final_assessment}'`);
     }
 }
