@@ -27,6 +27,16 @@ export type RiskVerdict =
   | 'BENIGN'
   | 'UNKNOWN';
 
+export type DomainTrustVerdict = 'SAFE' | 'UNKNOWN' | 'UNTRUSTED';
+
+export type UsageRiskVerdict = 'BENIGN' | 'SUSPICIOUS' | 'MALICIOUS';
+
+export type FinalAssessment =
+  | 'SAFE'
+  | 'SUSPICIOUS'
+  | 'TRUSTED_SERVICE_ABUSED'
+  | 'MALICIOUS_SERVICE';
+
 export type IntelligenceTier =
   | 'TIER_1_LOCAL'       // Deterministic Heuristics
   | 'TIER_2_PUBLIC_API'  // External Data (Reserved)
@@ -197,6 +207,12 @@ export interface AnalysisResult {
   verdict: RiskVerdict;
   riskScore: number; // 0-100
   confidence: number; // 0.0-1.0 (Legacy, kept for compat)
+
+  // Verdict Model v2
+  root_trusted?: boolean;
+  domain_trust?: DomainTrustVerdict;
+  usage_risk?: UsageRiskVerdict;
+  final_assessment?: FinalAssessment;
 
   // New Structured Fields
   confidence_detail?: ConfidenceProfile;

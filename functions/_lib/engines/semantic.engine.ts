@@ -75,20 +75,6 @@ export async function analyzeSemantic(artifact: string, type: ArtifactType): Pro
         }
     }
 
-    // Rule: Trusted Infrastructure + Malicious Intent = Suspicious (Abuse)
-    // If we detected 'MALICIOUS' intent (e.g. password field) but it is TRUSTED INFRA
-    // We explicitly downgrade to SUSPICIOUS per directive.
-    const isTrusted = TRUSTED_INFRA.test(artifact);
-    if (intent === 'MALICIOUS' && isTrusted) {
-        intent = 'SUSPICIOUS';
-        indicators.push('Verdict clamped to SUSPICIOUS due to Trusted Infrastructure origin (Reputation Abuse logic)');
-        // Ensure score reflects this clamp?
-        // If it was 85 (Malicious), we might keep the score but change the *Intent* label.
-        // But the verdict is derived from score in Orchestrator.
-        // We should adjust score to be in Suspicious range (50-80).
-        score = Math.min(score, 75);
-    }
-
     // Final Score Normalization
     score = Math.min(100, Math.max(0, score));
 

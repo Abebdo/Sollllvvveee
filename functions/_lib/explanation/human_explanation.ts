@@ -1,5 +1,5 @@
 import { EngineResult } from '../engines/types';
-import { ConflictResolution, RiskVerdict, AnalystInsight, FragilityResult, ConfidenceRange } from '../types';
+import { ConflictResolution, RiskVerdict, AnalystInsight, FragilityResult, ConfidenceRange, FinalAssessment } from '../types';
 
 export function generateAnalystExplanation(
     results: EngineResult[],
@@ -7,7 +7,9 @@ export function generateAnalystExplanation(
     verdict: RiskVerdict,
     riskScore: number,
     fragility: FragilityResult,
-    confidenceRange: ConfidenceRange
+    confidenceRange: ConfidenceRange,
+    rootTrusted: boolean = false,
+    finalAssessment?: FinalAssessment
 ): AnalystInsight {
 
     // 1. Gather Signals
@@ -23,8 +25,12 @@ export function generateAnalystExplanation(
     // 2. Construct Summary (Contrastive Reasoning)
     let summary = '';
 
+    // Special Case: Trusted Service Abuse (Root Trust Immunity)
+    if (rootTrusted && finalAssessment === 'TRUSTED_SERVICE_ABUSED') {
+         summary = `This domain is a globally trusted and safe service. However, attackers frequently abuse trusted platforms to increase credibility. Therefore, this instance is classified as Trusted Service Abuse, not a malicious domain.`;
+    }
     // "Although..., however..., therefore..."
-    if (conflict.conflict_detected) {
+    else if (conflict.conflict_detected) {
         // Conflict Scenario
         if (conflict.winning_signal === 'INTENT') {
              summary = `Although the domain carries a reputable history, however ${conflict.reasoning.toLowerCase()} Because risk indicators outweigh reputation in this context, therefore we assess this as ${verdict}.`;

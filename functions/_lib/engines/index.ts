@@ -6,3 +6,4 @@ export * from './context.engine';
 export * from './baseline.engine';
 export * from './confidence_fragility.engine';
 export * from './meta_judgment.engine';
+export * from './root_trust.engine';
