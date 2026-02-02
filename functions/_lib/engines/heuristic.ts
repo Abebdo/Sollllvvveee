@@ -106,6 +106,19 @@ export function analyzeHeuristic(artifact: string, type: ArtifactType): EngineRe
              addFeature('typosquatting', 'Potential typosquatting or brand masquerading', 45, domain);
         }
 
+        // Subdomain Abuse / Brand Masquerading
+        const TARGETED_BRANDS = ['google', 'microsoft', 'apple', 'amazon', 'netflix', 'facebook', 'dropbox'];
+        for (const brand of TARGETED_BRANDS) {
+            // Check if brand appears in domain but is not the SLD
+            // e.g. google.com.evil.com
+            if (domain.includes(brand)) {
+                 const isOfficial = domain.endsWith(`.${brand}.com`) || domain.endsWith(`.${brand}.org`) || domain.endsWith(`.${brand}.net`) || domain === `${brand}.com` || domain === `${brand}.org` || domain === `${brand}.net`;
+                 if (!isOfficial) {
+                      addFeature('subdomain_abuse', `Detected '${brand}' in subdomain (potential impersonation)`, 60, domain);
+                 }
+            }
+        }
+
         // Homoglyph / Lookalike Detection (Visual Spoofing)
         // Detects common visual hacks (e.g., paypaI, googIe, arnazon)
         const homoglyphs = /paypai|googIe|rnicrosoft|arnazon|faceb00k|lnstagram|linkedin|netflix/i;
