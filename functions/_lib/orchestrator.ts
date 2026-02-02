@@ -1,4 +1,4 @@
-import { Env, AnalysisRequest, AnalysisResult, RiskVerdict, FeatureResult, ApiResponse, RiskTimelineStage, AnalystFlags, ConflictResolution, EpistemicProfile, SelfCritique } from './types';
+import { Env, AnalysisRequest, AnalysisResult, RiskVerdict, FeatureResult, ApiResponse, RiskTimelineStage, AnalystFlags, ConflictResolution, EpistemicProfile, SelfCritique, UsageRiskVerdict, FinalAssessment } from './types';
 import { validateInput, sanitizeInput, classifyArtifact } from './validation';
 import { RateLimiter } from './ratelimit';
 import {
@@ -8,6 +8,7 @@ import {
     analyzeContext,
     analyzeBaseline,
     analyzeMetaJudgment,
+    analyzeRootTrust,
     EngineResult
 } from './engines';
 import { analyzeSemantic } from './engines/semantic.engine';
@@ -131,6 +132,10 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         }
     }
 
+    // 4.5 Root Trust (Pre-computation)
+    const rootTrust = await analyzeRootTrust(artifact, type);
+    const isRootTrusted = rootTrust.is_trusted;
+
     // 5. Analysis Execution (Multi-Engine)
     const enginePromises = [
         { name: 'reputation', fn: () => analyzeReputation(artifact, type) },
@@ -163,6 +168,14 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     const validEngineResults: EngineResult[] = [];
     let isAllowListed = false;
 
+    // Inject Root Trust result
+    if (rootTrust) {
+        validEngineResults.push({
+            ...rootTrust.engine_result,
+            _meta: { name: 'root_trust', duration: 0 }
+        } as any);
+    }
+
     for (const result of results) {
         if (result.status === 'fulfilled' && result.value) {
             const r = result.value as (EngineResult & { _meta: any });
@@ -183,7 +196,9 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         }
     }
 
-    if (isAllowListed && totalScore < 10) {
+    if (isRootTrusted) {
+        whyItMatters.unshift("Domain is ROOT TRUSTED infrastructure (Immunity Active).");
+    } else if (isAllowListed && totalScore < 10) {
         whyItMatters.unshift("Artifact is on a known safe list.");
     } else if (isAllowListed && totalScore >= 50) {
          whyItMatters.unshift("Artifact is on a known safe list, BUT abnormal behavior was detected.");
@@ -195,7 +210,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     // --- PHASE 2: Conflict Resolution, Meta-Judgment & Fragility ---
 
-    const conflict = analyzeConflict(validEngineResults);
+    const conflict = analyzeConflict(validEngineResults, isRootTrusted);
     const metaJudgment = analyzeMetaJudgment(validEngineResults);
     const fragility = analyzeFragility(validEngineResults);
 
@@ -316,6 +331,39 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         totalScore = Math.max(totalScore, 55);
     }
 
+    // --- VERDICT MODEL V2 IMPLEMENTATION ---
+
+    // 1. Calculate Usage Risk
+    let usageRisk: UsageRiskVerdict = 'BENIGN';
+    if (semanticIntentData) {
+         usageRisk = semanticIntentData.intent;
+    } else {
+         if (totalScore > 80) usageRisk = 'MALICIOUS';
+         else if (totalScore > 50) usageRisk = 'SUSPICIOUS';
+    }
+
+    // 2. Calculate Final Assessment
+    let finalAssessment: FinalAssessment = 'SAFE';
+
+    if (isRootTrusted) {
+        // LAW: Domain Trust is SAFE (already set in rootTrustResult)
+        // Usage Risk determines Final Assessment
+        if (usageRisk === 'MALICIOUS' || usageRisk === 'SUSPICIOUS' || verdict === 'MALICIOUS' || verdict === 'SUSPICIOUS') {
+             finalAssessment = 'TRUSTED_SERVICE_ABUSED';
+             // Adjust legacy verdict to match visual expectation of risk, even if domain is safe.
+             // We keep verdict as SUSPICIOUS to trigger warning colors, but explanation handles the rest.
+             if (verdict === 'BENIGN') verdict = 'SUSPICIOUS';
+        } else {
+             finalAssessment = 'SAFE';
+             verdict = 'BENIGN'; // Force Benign
+        }
+    } else {
+         // Non-trusted domains
+         if (verdict === 'MALICIOUS') finalAssessment = 'MALICIOUS_SERVICE';
+         else if (verdict === 'SUSPICIOUS') finalAssessment = 'SUSPICIOUS';
+         else finalAssessment = 'SAFE';
+    }
+
     // Contextual Verdict
     const contextDecision = applyContextualVerdict(verdict, context?.source);
     if (contextDecision.context_downgrade) {
@@ -369,7 +417,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         requires_human_attention: conflict.conflict_detected || fragility.level === 'HIGH' || (verdict === 'SUSPICIOUS' && totalScore < 70)
     };
 
-    const analystInsight = generateAnalystExplanation(validEngineResults, conflict, verdict, totalScore, fragility, confidenceRange);
+    const analystInsight = generateAnalystExplanation(validEngineResults, conflict, verdict, totalScore, fragility, confidenceRange, isRootTrusted, finalAssessment);
 
     // Enrich Analyst Insight with Infrastructure Abuse if present
     if (infrastructure.trusted_infra_abuse) {
@@ -413,6 +461,12 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         verdict,
         riskScore: totalScore,
         confidence: finalConfidence,
+
+        // Verdict Model v2
+        root_trusted: isRootTrusted,
+        domain_trust: rootTrust.verdict,
+        usage_risk: usageRisk,
+        final_assessment: finalAssessment,
 
         // New Structured Fields
         confidence_level: finalConfidence,

@@ -1,7 +1,7 @@
 import { EngineResult } from '../engines/types';
 import { ConflictResolution } from '../types';
 
-export function analyzeConflict(results: EngineResult[]): ConflictResolution {
+export function analyzeConflict(results: EngineResult[], rootTrusted: boolean = false): ConflictResolution {
     const semantic = results.find(r => r.name === 'semantic');
     const heuristic = results.find(r => r.name === 'heuristic');
     const reputation = results.find(r => r.name === 'reputation');
@@ -30,10 +30,28 @@ export function analyzeConflict(results: EngineResult[]): ConflictResolution {
 
     // Reputation Status
     const reputationSafe = reputation?.score === 0;
-    const isAllowListed = reputation?.signals?.includes('safe_list') || (reputationSafe && (reputation?.confidence || 0) > 0.8);
+    const isAllowListed = rootTrusted || reputation?.signals?.includes('safe_list') || (reputationSafe && (reputation?.confidence || 0) > 0.8);
+
+    // 0. Root Trust + Malicious Usage (Specific Rule)
+    // We require stronger evidence for Root Trusted domains to avoid false positives on brand keywords
+    // e.g. "google.com" triggers 'credential_targeting' (keyword 'google'), but that's weak (score 30).
+    // We require Heuristic Score > 50 to confirm it's not just a keyword match.
+    if (rootTrusted && (intentMalicious || (heuristicPhishing && heuristicScore > 50) || semanticScore > 80)) {
+        console.log('Conflict: Root Trust Abuse detected', { intentMalicious, heuristicPhishing, heuristicScore, semanticScore });
+        resolution.conflict_detected = true;
+        resolution.primary_conflict = 'Trusted Service Abuse';
+        resolution.winning_signal = 'INTENT';
+        resolution.reasoning = 'Malicious usage detected on globally trusted infrastructure.';
+        // We do not severely penalize confidence here because we are sure about the abuse pattern
+        // but we acknowledge the inherent duality.
+        resolution.confidence_adjustment = 0.85;
+        return resolution;
+    }
 
     // 1. Trusted Domain + Credential Harvesting / Phishing (Intent beats Reputation)
-    if (isAllowListed && (intentMalicious || heuristicPhishing || semanticScore > 80)) {
+    // Apply same safeguard: Heuristic must be strong (>50) if it's the only signal, to avoid keyword noise.
+    if (isAllowListed && (intentMalicious || (heuristicPhishing && heuristicScore > 50) || semanticScore > 80)) {
+        console.log('Conflict: Trusted Domain Abuse', { isAllowListed, intentMalicious, heuristicPhishing, heuristicScore, semanticScore });
         resolution.conflict_detected = true;
         resolution.primary_conflict = 'Trusted Infrastructure Abuse (Phishing/Malicious Content)';
         resolution.winning_signal = 'INTENT';
@@ -44,6 +62,7 @@ export function analyzeConflict(results: EngineResult[]): ConflictResolution {
 
     // 2. High Reputation + Suspicious Intent
     if (reputationSafe && (intentSuspicious || semanticScore > 60)) {
+        console.log('Conflict: High Rep + Suspicious Intent', { reputationSafe, intentSuspicious, semanticScore });
         resolution.conflict_detected = true;
         resolution.primary_conflict = 'High Reputation contradicted by Suspicious Intent';
         resolution.winning_signal = 'INTENT';

@@ -24,7 +24,7 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
 
     // 1. Engine Families
     const families = {
-        reputation: ['reputation'],
+        reputation: ['reputation', 'root_trust'],
         heuristic: ['heuristic', 'structure', 'baseline'],
         semantic: ['semantic'],
         context: ['context']

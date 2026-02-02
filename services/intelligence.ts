@@ -91,15 +91,27 @@ export class RiskEngine {
              detected: f.detected
         })) : [];
 
+        if (result.root_trusted) {
+             technicalSignals.unshift({ name: "Domain Trust", value: "SAFE", detected: false });
+        }
+
         technicalSignals.push({ name: "Global Risk Score", value: `${result.riskScore}/100`, detected: result.riskScore > 0 });
         technicalSignals.push({ name: "AI Verification", value: result.summary.includes("Simulated") ? "SIMULATED" : "ACTIVE", detected: true });
 
         const confidenceRange = result.confidence_range;
         const fragility = result.fragility;
 
+        let primaryHypothesis = result.verdict === 'BENIGN' ? "Legitimate Activity" : (result.verdict === 'MALICIOUS' ? "Malicious Activity" : "Suspicious Activity");
+
+        if (result.final_assessment === 'TRUSTED_SERVICE_ABUSED') {
+             primaryHypothesis = "Trusted Service – Suspicious Usage";
+        } else if (result.final_assessment === 'MALICIOUS_SERVICE') {
+             primaryHypothesis = "Malicious Service";
+        }
+
         return {
             risk_level: riskLevel,
-            primary_hypothesis: result.verdict === 'BENIGN' ? "Legitimate Activity" : (result.verdict === 'MALICIOUS' ? "Malicious Activity" : "Suspicious Activity"),
+            primary_hypothesis: primaryHypothesis,
             summary: result.summary,
             uncertainty: {
                 confidence_percentage: confidenceRange ? Number((confidenceRange.mostLikely * 100).toFixed(0)) : Number((result.confidence || 0.8) * 100).toFixed(0) as unknown as number,
