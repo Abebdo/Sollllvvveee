@@ -115,8 +115,8 @@ describe('Adversarial & Epistemic Intelligence Tests', () => {
         const result = data.data;
 
         expect(result.confidence_range).toBeDefined();
-        expect(result.confidence_range.min).toBeLessThanOrEqual(result.confidence_range.most_likely);
-        expect(result.confidence_range.max).toBeGreaterThanOrEqual(result.confidence_range.most_likely);
+        expect(result.confidence_range.min).toBeLessThanOrEqual(result.confidence_range.mostLikely);
+        expect(result.confidence_range.max).toBeGreaterThanOrEqual(result.confidence_range.mostLikely);
         expect(result.confidence_range.uncertainty).toBeDefined();
     });
 

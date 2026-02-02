@@ -94,18 +94,29 @@ export class RiskEngine {
         technicalSignals.push({ name: "Global Risk Score", value: `${result.riskScore}/100`, detected: result.riskScore > 0 });
         technicalSignals.push({ name: "AI Verification", value: result.summary.includes("Simulated") ? "SIMULATED" : "ACTIVE", detected: true });
 
+        const confidenceRange = result.confidence_range;
+        const fragility = result.fragility;
+
         return {
             risk_level: riskLevel,
             primary_hypothesis: result.verdict === 'BENIGN' ? "Legitimate Activity" : (result.verdict === 'MALICIOUS' ? "Malicious Activity" : "Suspicious Activity"),
             summary: result.summary,
             uncertainty: {
-                confidence_percentage: (result.confidence || 0.8) * 100,
-                known_unknowns: ["External threat intel feeds limited in Dev Mode"],
+                confidence_percentage: confidenceRange ? Number((confidenceRange.mostLikely * 100).toFixed(0)) : Number((result.confidence || 0.8) * 100).toFixed(0) as unknown as number,
+                confidence_range: confidenceRange ? {
+                    min: Number((confidenceRange.min * 100).toFixed(0)),
+                    max: Number((confidenceRange.max * 100).toFixed(0))
+                } : undefined,
+                known_unknowns: result.uncertainty_flags || ["External threat intel feeds limited in Dev Mode"],
                 suggested_verification: result.explanation.recommendedActions || []
             },
             key_factors: factors,
             recommended_action: (result.explanation.recommendedActions && result.explanation.recommendedActions[0]) || "No action required.",
-            technical_signals: technicalSignals
+            technical_signals: technicalSignals,
+            fragility: fragility ? {
+                level: fragility.level,
+                reasons: fragility.reasons
+            } : undefined
         };
 
     } catch (error) {

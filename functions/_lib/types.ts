@@ -75,9 +75,9 @@ export interface ConfidenceProfile {
 
 export interface ConfidenceRange {
   min: number;
-  most_likely: number;
+  mostLikely: number;
   max: number;
-  uncertainty: number;
+  uncertainty: number; // max - min
 }
 
 export interface RiskTimelineStage {

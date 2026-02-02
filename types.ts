@@ -14,6 +14,7 @@ export interface RiskArgument {
 
 export interface UncertaintyProfile {
   confidence_percentage: number;
+  confidence_range?: { min: number; max: number };
   known_unknowns: string[];
   suggested_verification: string[];
 }
@@ -26,6 +27,7 @@ export interface RiskAssessment {
   key_factors: RiskArgument[];
   recommended_action: string;
   technical_signals: { name: string; value: string; detected: boolean }[];
+  fragility?: { level: 'LOW' | 'MEDIUM' | 'HIGH'; reasons: string[] };
 }
 
 export interface AnalysisStep {

@@ -44,7 +44,30 @@ export const RiskDisplay: React.FC<RiskDisplayProps> = ({ assessment, onReset })
                 {assessment.summary}
               </p>
 
-              <ConfidenceMeter percentage={assessment.uncertainty.confidence_percentage} className="bg-background/50 p-4 rounded-xl border border-slate-700/50" />
+              <ConfidenceMeter
+                percentage={assessment.uncertainty.confidence_percentage}
+                range={assessment.uncertainty.confidence_range}
+                className="bg-background/50 p-4 rounded-xl border border-slate-700/50"
+              />
+
+              {assessment.fragility && (
+                <div className="mt-4 p-4 rounded-xl bg-slate-900/50 border border-slate-800">
+                   <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Fragility</span>
+                      <span className={cn(
+                          "text-xs font-bold px-2 py-0.5 rounded",
+                          assessment.fragility.level === 'HIGH' ? "bg-risk-critical/20 text-risk-critical" :
+                          assessment.fragility.level === 'MEDIUM' ? "bg-risk-medium/20 text-risk-medium" :
+                          "bg-primary/20 text-primary"
+                      )}>
+                          {assessment.fragility.level}
+                      </span>
+                   </div>
+                   <p className="text-sm text-slate-300">
+                      Reason: {assessment.fragility.reasons[0] || "Analysis is stable."}
+                   </p>
+                </div>
+              )}
             </div>
           </Card>
 
