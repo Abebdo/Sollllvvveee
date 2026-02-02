@@ -87,3 +87,42 @@ export function applyContextualVerdict(
 
     return result;
 }
+
+/**
+ * Generates a map of verdicts for different hypothetical contexts.
+ * Used to determine if the artifact's safety is highly context-dependent.
+ */
+export function generateContextualVerdicts(originalVerdict: RiskVerdict): Record<string, RiskVerdict> {
+    const contexts = [
+        'direct_visit',
+        'email',
+        'sms',
+        'qr_scan',
+        'social_media',
+        'embedded_iframe',
+        'url_shortener'
+    ];
+
+    const results: Record<string, RiskVerdict> = {};
+
+    contexts.forEach(ctx => {
+        // Map abstract contexts to strings that trigger logic in applyContextualVerdict
+        let triggerString = ctx;
+        if (ctx === 'qr_scan') triggerString = 'qr_scan_physical_access';
+        if (ctx === 'social_media') triggerString = 'social_engineering'; // Treat as high risk vector
+        if (ctx === 'url_shortener') triggerString = 'shortener';
+
+        const res = applyContextualVerdict(originalVerdict, triggerString);
+        results[ctx] = res.adjusted_verdict;
+    });
+
+    return results;
+}
+
+export function checkContextDivergence(verdicts: Record<string, RiskVerdict>): boolean {
+    const values = Object.values(verdicts);
+    // If we have both BENIGN and SUSPICIOUS/MALICIOUS, it diverges.
+    const hasBenign = values.includes('BENIGN');
+    const hasBad = values.includes('SUSPICIOUS') || values.includes('MALICIOUS');
+    return hasBenign && hasBad;
+}

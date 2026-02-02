@@ -229,4 +229,68 @@ describe('Final Intelligence Calibration & Analyst-Grade Hardening', () => {
         expect(result.contextual_verdict?.context_downgrade).toBe(true);
     });
 
+    // 10. Phase 1: Epistemic Profile Verification
+    it('should include a detailed Epistemic Profile', async () => {
+        const req = mockRequest({ artifact: 'https://example.com' });
+        const res = await handleAnalysisRequest(req, mockEnv);
+        const data = await res.json() as any;
+        const result = data.data;
+
+        expect(result.epistemic_profile).toBeDefined();
+        expect(result.epistemic_profile?.confidence_range).toBeDefined();
+        expect(result.epistemic_profile?.what_would_change_verdict).toBeInstanceOf(Array);
+        expect(result.epistemic_profile?.uncertainty_sources).toBeInstanceOf(Array);
+
+        // Check confidence range consistency
+        const range = result.epistemic_profile?.confidence_range;
+        if (range) {
+            expect(range.min).toBeLessThanOrEqual(range.mostLikely);
+            expect(range.max).toBeGreaterThanOrEqual(range.mostLikely);
+        }
+    });
+
+    // 11. Phase 1: Trusted Infrastructure Abuse
+    it('should detect Trusted Infrastructure Abuse when intent is Malicious', async () => {
+        // Mock semantic intent as MALICIOUS for a trusted domain
+        (global.fetch as any).mockResolvedValue({
+            ok: true,
+            status: 200,
+            url: 'https://docs.google.com/forms/d/e/12345/viewform',
+            text: async () => '<html><body><form><input type="password" name="p"></form></body></html>', // Phishing indicator
+            headers: new Map()
+        });
+
+        const req = mockRequest({ artifact: 'https://docs.google.com/forms/d/e/12345/viewform' });
+        const res = await handleAnalysisRequest(req, mockEnv);
+        const data = await res.json() as any;
+        const result = data.data;
+
+        expect(result.infrastructure_intel?.trusted_infra_abuse).toBe(true);
+        expect(result.infrastructure_intel?.abuse_type).toContain('Trusted infrastructure abused');
+        expect(result.why_it_matters[0]).toContain('CRITICAL: Trusted infrastructure');
+    });
+
+    // 12. Phase 1: Contextual Verdict Multiplexing
+    it('should generate Contextual Verdicts and detect divergence', async () => {
+        // Use a trusted domain so base verdict is likely BENIGN
+        (global.fetch as any).mockResolvedValue({
+            ok: true,
+            status: 200,
+            url: 'https://example.com',
+            text: async () => '<html>Safe</html>',
+            headers: new Map()
+        });
+
+        const req = mockRequest({ artifact: 'https://example.com' }); // Benign by default
+        const res = await handleAnalysisRequest(req, mockEnv);
+        const data = await res.json() as any;
+        const result = data.data;
+
+        expect(result.contextual_verdicts).toBeDefined();
+        expect(result.contextual_verdicts?.email).toBe('SUSPICIOUS'); // Email context should downgrade example.com
+
+        // Check fragility increase or uncertainty flag if divergent
+        expect(result.uncertainty_flags).toContain('This artifact is context-dependent and unsafe to generalize.');
+    });
+
 });

@@ -1,4 +1,4 @@
-import { Env, AnalysisRequest, AnalysisResult, RiskVerdict, FeatureResult, ApiResponse, RiskTimelineStage, AnalystFlags, AnalystInsight, ConflictResolution } from './types';
+import { Env, AnalysisRequest, AnalysisResult, RiskVerdict, FeatureResult, ApiResponse, RiskTimelineStage, AnalystFlags, ConflictResolution, EpistemicProfile, SelfCritique } from './types';
 import { validateInput, sanitizeInput, classifyArtifact } from './validation';
 import { RateLimiter } from './ratelimit';
 import {
@@ -12,7 +12,7 @@ import {
 } from './engines';
 import { analyzeSemantic } from './engines/semantic.engine';
 import { analyzeFragility } from './analysis/fragility';
-import { applyContextualVerdict } from './context/contextual_verdict';
+import { applyContextualVerdict, generateContextualVerdicts, checkContextDivergence } from './context/contextual_verdict';
 
 import { consultMemory, updateMemory, consultCampaignMemory, updateCampaignMemory } from './memory/analytical_memory';
 import { analyzeBehavioralTimeline } from './analysis/behavioral_timeline';
@@ -21,13 +21,13 @@ import { analyzeCampaignCorrelation, generateCampaignFingerprint } from './analy
 
 import { AppError, ErrorCode, createErrorResponse } from './errors';
 import { analyzeTemporal } from './temporal';
-import { calculateConfidence, calibrateConfidence, calculateConfidenceRange } from './confidence';
+import { calculateConfidence, calibrateConfidence } from './confidence';
 import { buildReasoningGraph } from './reasoning';
 import { CognitiveTraceStep } from './cognitive_trace';
-import { SelfCritique } from './types';
 import { analyzeConflict } from './analysis/conflict_resolution';
 import { generateAnalystExplanation } from './explanation/human_explanation';
 import { expandUrl } from './analysis/url_expansion';
+import { buildEpistemicProfile } from './analysis/epistemic_profile';
 
 export const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -212,12 +212,18 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     // --- PHASE 3: Analytical Memory, Temporal & Deep Intel ---
 
+    // Extract semantic intent early for infrastructure analysis
+    const semanticResult = validEngineResults.find(r => r.name === 'semantic');
+    const semanticIntentData = semanticResult ? (semanticResult as any).semantic_intent : undefined;
+
     const memory = await consultMemory(env, artifact);
     const temporalAnalysis = await analyzeTemporal(env, cacheKey, totalScore);
 
     // Phase 1 (New): Behavioral & Infrastructure
     const behavioral = analyzeBehavioralTimeline(totalScore, memory.history_scores);
-    const infrastructure = analyzeInfrastructure(artifact, type);
+
+    // Pass semantic intent to infrastructure analysis
+    const infrastructure = analyzeInfrastructure(artifact, type, semanticIntentData?.intent);
 
     // Phase 2 (New): Campaign Correlation
     const fingerprint = generateCampaignFingerprint(artifact);
@@ -238,6 +244,15 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         totalScore += (infrastructure.infrastructure_risk_score * 0.2); // 20% weight
         whyItMatters.push(`Infrastructure Risk: ${infrastructure.provider_name} (${infrastructure.abuse_type || 'Potential Abuse'})`);
         riskTimeline.push({ stage: 'Infrastructure Risk Adjustment', score: totalScore });
+    }
+
+    if (infrastructure.trusted_infra_abuse) {
+        whyItMatters.unshift("CRITICAL: Trusted infrastructure abused to inherit false legitimacy.");
+        // Ensure score is high enough if not already
+        if (totalScore < 75) {
+             totalScore = 75;
+             riskTimeline.push({ stage: 'Trusted Infrastructure Abuse Override', score: totalScore });
+        }
     }
 
     if (campaign.campaign_confidence > 0.5) {
@@ -287,10 +302,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     else if (totalScore > 50) verdict = 'SUSPICIOUS';
     else verdict = 'BENIGN';
 
-    // KILL ABSOLUTE TRUST: Downgrade 'BENIGN' if malicious intent is detected, even if score < 50 (unlikely due to adjustment above, but safety net)
-    const semanticResult = validEngineResults.find(r => r.name === 'semantic');
-    const semanticIntentData = semanticResult ? (semanticResult as any).semantic_intent : undefined;
-
+    // KILL ABSOLUTE TRUST: Downgrade 'BENIGN' if malicious intent is detected
     if (verdict === 'BENIGN' && semanticIntentData && semanticIntentData.intent === 'MALICIOUS') {
         verdict = 'SUSPICIOUS';
         totalScore = Math.max(totalScore, 55);
@@ -315,30 +327,54 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         riskTimeline.push({ stage: 'Contextual Adjustment', score: totalScore });
     }
 
+    // New: Context Multiplexing & Sensitivity Analysis
+    const contextualVerdicts = generateContextualVerdicts(verdict);
+    const contextDivergence = checkContextDivergence(contextualVerdicts);
+
+    if (contextDivergence) {
+        uncertaintyFlags.push('This artifact is context-dependent and unsafe to generalize.');
+        // Increase fragility if not already high
+        if (fragility.level === 'LOW') {
+            fragility.level = 'MEDIUM';
+            fragility.reasons.push('Verdict is highly sensitive to context (divergent scenarios).');
+        }
+    }
+
     // Final Confidence Calibration
     finalConfidence = calibrateConfidence(finalConfidence, verdict, totalScore, fragility.level);
 
-    // Calculate Uncertainty Range
-    const confidenceRange = calculateConfidenceRange(
+    // Calculate Epistemic Profile (New)
+    const epistemicProfile = buildEpistemicProfile(
         finalConfidence,
         verdict,
-        fragility.level,
+        fragility,
         conflict,
-        metaJudgment.source_diversity
+        metaJudgment
     );
+
+    // Use the Epistemic Profile's confidence range as the source of truth
+    const confidenceRange = epistemicProfile.confidence_range;
+
+    // Append Epistemic uncertainty sources to uncertaintyFlags
+    uncertaintyFlags.push(...epistemicProfile.uncertainty_sources);
 
     const reasoningGraph = buildReasoningGraph(aggregatedFeatures, verdict);
 
     // --- PHASE 5: Self-Critique, Analyst Insight & Output Construction ---
 
     const analystFlags: AnalystFlags = {
-        reputation_abuse: conflict.conflict_detected && conflict.primary_conflict?.includes('Trusted Infrastructure') || false,
+        reputation_abuse: (conflict.conflict_detected && conflict.primary_conflict?.includes('Trusted Infrastructure')) || infrastructure.trusted_infra_abuse || false,
         high_fragility: fragility.level === 'HIGH',
         conflicting_signals: conflict.conflict_detected,
         requires_human_attention: conflict.conflict_detected || fragility.level === 'HIGH' || (verdict === 'SUSPICIOUS' && totalScore < 70)
     };
 
     const analystInsight = generateAnalystExplanation(validEngineResults, conflict, verdict, totalScore, fragility, confidenceRange);
+
+    // Enrich Analyst Insight with Infrastructure Abuse if present
+    if (infrastructure.trusted_infra_abuse) {
+        analystInsight.analyst_summary = `CRITICAL: Trusted infrastructure (${infrastructure.provider_name}) abused to inherit false legitimacy. ${analystInsight.analyst_summary}`;
+    }
 
     const selfCritique: SelfCritique = {
         assumptions_made: [
@@ -347,7 +383,9 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         ],
         what_might_be_wrong: [
             ...fragility.reasons,
-            ...(metaJudgment.warnings || [])
+            ...(metaJudgment.warnings || []),
+            ...epistemicProfile.uncertainty_sources,
+            ...epistemicProfile.what_would_change_verdict.map(s => `If discovered: ${s}`)
         ],
         missing_information: []
     };
@@ -379,7 +417,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         // New Structured Fields
         confidence_level: finalConfidence,
         stability_score: parseFloat((1 - (fragility.score / 10)).toFixed(2)),
-        uncertainty_flags: uncertaintyFlags,
+        uncertainty_flags: Array.from(new Set(uncertaintyFlags)), // Dedupe
         self_critique: selfCritique,
 
         // Phase 5 Fields
@@ -389,6 +427,10 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         semantic_intent: semanticIntentData,
         risk_timeline: riskTimeline,
         confidence_range: confidenceRange,
+
+        // Phase 1 (Directive) Fields
+        epistemic_profile: epistemicProfile,
+        contextual_verdicts: contextualVerdicts,
 
         // Competitive Intel Fields
         behavioral_timeline: behavioral,
