@@ -24,8 +24,7 @@ export type ArtifactType =
 export type RiskVerdict =
   | 'MALICIOUS'
   | 'SUSPICIOUS'
-  | 'BENIGN'
-  | 'UNKNOWN';
+  | 'BENIGN';
 
 export type DomainTrustVerdict = 'SAFE' | 'UNKNOWN' | 'UNTRUSTED';
 
