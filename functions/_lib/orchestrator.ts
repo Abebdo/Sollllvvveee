@@ -118,7 +118,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
                     status: 'completed',
                     result: cached
                 }), {
-                    headers: { ...securityHeaders, ...rlHeaders, 'Content-Type': 'application/json' }
+                    headers: { ...securityHeaders, ...rlHeaders, 'Content-Type': 'application/json' } as any
                 });
             }
         } catch (e) {
@@ -422,6 +422,6 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         status: 'completed',
         result: analysisResult
     }), {
-        headers: { ...securityHeaders, ...rlHeaders, 'Content-Type': 'application/json' }
+        headers: { ...securityHeaders, ...rlHeaders, 'Content-Type': 'application/json' } as any
     });
 }

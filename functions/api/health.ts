@@ -1,4 +1,10 @@
-import { corsHeaders } from '../_lib/orchestrator';
+// Remove dependency on orchestrator to prevent build coupling
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
 import { Env } from '../_lib/types';
 
 export const onRequestOptions: PagesFunction = async () => {
@@ -24,7 +30,9 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         try {
             await context.env.ANALYSIS_CACHE.get('health_check');
         } catch (e) {
-            checks.push(`KV access failed: ${e.message}`);
+            // Safely handle unknown error type
+            const errorMessage = e instanceof Error ? e.message : String(e);
+            checks.push(`KV access failed: ${errorMessage}`);
             status = 'error';
         }
     }
