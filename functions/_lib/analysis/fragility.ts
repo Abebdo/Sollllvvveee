@@ -12,14 +12,8 @@ export function analyzeFragility(results: EngineResult[]): FragilityResult {
     // 1. Source Diversity
     // Logic: Count engines that contributed meaningful signals (score > 0 or features detected)
     const activeEngines = validResults.filter(r => (r.features && r.features.length > 0) || r.score > 10);
-    const diversity = activeEngines.length / Math.max(1, results.length); // Use total attempted engines for denominator?
-    // Actually, usually we pass all settled results. If we passed 6 engines and only 1 was active...
-    // Let's assume 'results' contains all engines that successfully ran.
 
-    // Directive: "Low source diversity (<30%) -> +3"
-    // If we have 6 engines, 30% is 1.8. So 0 or 1 active engine is low diversity.
-    // If we have 5 engines, 30% is 1.5.
-
+    // Use total valid engines for denominator to assess participation rate
     const diversityRatio = activeEngines.length / Math.max(1, validResults.length);
 
     if (diversityRatio < 0.3) {
@@ -45,8 +39,6 @@ export function analyzeFragility(results: EngineResult[]): FragilityResult {
     // If Reputation is active/high score, but others are not supporting it strongly?
     // Or simply if Reputation is the dominant factor.
     const reputation = validResults.find(r => r.name === 'reputation');
-    const heuristic = validResults.find(r => r.name === 'heuristic');
-    const semantic = validResults.find(r => r.name === 'semantic');
 
     // If reputation is the ONLY active engine, that's heavy reliance.
     if (activeEngines.length === 1 && activeEngines[0].name === 'reputation') {
@@ -91,6 +83,13 @@ export function analyzeFragility(results: EngineResult[]): FragilityResult {
     if (!hasDynamic) {
         score += 1;
         reasons.push('Analysis limited to static engines only');
+    }
+
+    // 6. Context Blindness (+1)
+    // If context engine is missing or failed
+    if (!engineNames.has('context')) {
+        score += 1;
+        reasons.push('Context blindness: analysis performed without contextual awareness');
     }
 
     // Clamp Score 0-10

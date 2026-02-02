@@ -50,7 +50,7 @@ describe('V4 Intelligence - Meta-Judgment Engine', () => {
         const meta = analyzeMetaJudgment(results);
 
         expect(meta.contradictions.length).toBeGreaterThan(0);
-        expect(meta.contradictions[0]).toContain('Reputation safe-list contradicted');
+        expect(meta.contradictions).toContain('Reputation safe-list contradicted by active risk signals');
         expect(meta.confidence_adjustment).toBeLessThan(1.0);
     });
 
@@ -76,9 +76,11 @@ describe('V4 Intelligence - Meta-Judgment Engine', () => {
             { id: 'f2', riskContribution: 10, description: 'd', tier: 'TIER_1_LOCAL' as const, detected: true, evidence: [] }
         ];
 
+        // Use distinct engine families to avoid Echo Chamber penalty
         const results: EngineResult[] = [
-            { name: 'engineA', score: 80, confidence: 1.0, signals: [], features: [features[0], features[1]] },
-            { name: 'engineB', score: 85, confidence: 1.0, signals: [], features: [features[0], features[1]] }
+            { name: 'heuristic', score: 80, confidence: 1.0, signals: [], features: [features[0], features[1]] },
+            { name: 'semantic', score: 85, confidence: 1.0, signals: [], features: [features[0], features[1]] },
+            { name: 'structure', score: 82, confidence: 1.0, signals: [], features: [features[0]] }
         ];
 
         const meta = analyzeMetaJudgment(results);

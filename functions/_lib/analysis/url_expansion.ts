@@ -40,7 +40,7 @@ export async function expandUrl(url: string): Promise<string> {
 
     } catch (e) {
         // Timeout, network error, or invalid URL - return original
-        // console.warn('URL expansion failed', e);
+        console.warn('URL expansion failed', e);
     }
 
     return url;

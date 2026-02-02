@@ -27,9 +27,9 @@ export function generateAnalystExplanation(
     if (conflict.conflict_detected) {
         // Conflict Scenario
         if (conflict.winning_signal === 'INTENT') {
-             summary = `Although the domain carries a reputable history, however ${conflict.reasoning.toLowerCase()}. Because risk indicators outweigh reputation in this context, therefore we assess this as ${verdict}.`;
+             summary = `Although the domain carries a reputable history, however ${conflict.reasoning.toLowerCase()} Because risk indicators outweigh reputation in this context, therefore we assess this as ${verdict}.`;
         } else {
-             summary = `Although ${conflict.primary_conflict ? 'conflicting signals were detected' : 'some indicators appear benign'}, however ${conflict.reasoning.toLowerCase()}. Because risk indicators outweigh reputation in this context, therefore we assess this as ${verdict}.`;
+             summary = `Although ${conflict.primary_conflict ? 'conflicting signals were detected' : 'some indicators appear benign'}, however ${conflict.reasoning.toLowerCase()} Because risk indicators outweigh reputation in this context, therefore we assess this as ${verdict}.`;
         }
     } else if (isTrusted && hasRisk) {
         // Mixed Signals (but not flagged as conflict, or minor)
@@ -44,10 +44,15 @@ export function generateAnalystExplanation(
         summary = `Although no definitive malicious payload was confirmed, however ${reason}. Therefore, we classify this as SUSPICIOUS.`;
     } else {
         // Benign
-        summary = `Analysis detected no active threats. Although zero risk is impossible, however multiple engines confirm legitimate patterns. Therefore, we assess this as BENIGN.`;
+        // Ensure uncertainty is communicated if needed
+        if (fragility.level !== 'LOW' || confidenceRange.uncertainty !== 'LOW') {
+             summary = `Analysis detected no active threats. Although legitimate patterns are dominant, however ${fragility.reasons[0] ? fragility.reasons[0].toLowerCase() : 'visibility is limited'}. Therefore, we assess this as BENIGN but advise standard caution.`;
+        } else {
+             summary = `Analysis detected no active threats. Although zero risk is impossible, however multiple engines confirm legitimate patterns. Therefore, we assess this as BENIGN.`;
+        }
     }
 
-    // 3. Add Fragility Context
+    // 3. Add Fragility Context (Explicitly surfacing brittleness)
     if (fragility.level === 'HIGH') {
         summary += ` This conclusion is FRAGILE due to ${fragility.reasons[0] ? fragility.reasons[0].toLowerCase() : 'limited visibility'}.`;
     } else if (fragility.level === 'MEDIUM') {
@@ -58,8 +63,10 @@ export function generateAnalystExplanation(
     const takeaways: string[] = [];
     if (conflict.conflict_detected) takeaways.push(`Conflict: ${conflict.primary_conflict}`);
     takeaways.push(...negativeSignals.slice(0, 3));
+    if (takeaways.length === 0) {
+         takeaways.push(...positiveSignals.slice(0, 3));
+    }
     if (fragility.level === 'HIGH') takeaways.push(`Fragility: High (${fragility.reasons.join(', ')})`);
-    if (takeaways.length === 0) takeaways.push('No significant risk factors detected.');
 
     // 5. Recommendation
     let recommendation = '';

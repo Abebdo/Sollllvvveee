@@ -14,7 +14,12 @@ export interface RiskArgument {
 
 export interface UncertaintyProfile {
   confidence_percentage: number;
-  confidence_range?: { min: number; max: number };
+  confidence_range?: {
+    min: number;
+    max: number;
+    mostLikely?: number;
+    uncertainty?: 'LOW' | 'MEDIUM' | 'HIGH';
+  };
   known_unknowns: string[];
   suggested_verification: string[];
 }
