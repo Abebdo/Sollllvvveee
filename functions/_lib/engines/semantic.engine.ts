@@ -5,8 +5,8 @@ const TRUSTED_INFRA = /google|github|cloudflare|amazon|microsoft|dropbox|herokua
 const SENSITIVE_KEYWORDS = /login|signin|password|credential|update|verify|banking|wallet|confirm|account|security|viewform/i;
 
 export async function analyzeSemantic(artifact: string, type: ArtifactType): Promise<EngineResult & { semantic_intent: SemanticIntentResult }> {
-    let intent: SemanticIntentResult['intent'] = 'BENIGN';
-    let confidence = 0.5;
+    let intent: SemanticIntentResult['intent'] | null = null;
+    let confidence = 0.0;
     const indicators: string[] = [];
     let score = 0;
 
@@ -30,6 +30,7 @@ export async function analyzeSemantic(artifact: string, type: ArtifactType): Pro
     // 2. Content Semantics (Simulated Fetch)
     // In a real environment, we would fetch. Here we attempt it but fail gracefully.
     // NOTE: This runs in Cloudflare Workers, so fetch IS available.
+    // FAIL FAST POLICY: If fetch fails, we let it throw. The orchestrator will catch it and fail the analysis.
     if (type === 'url' && (artifact.startsWith('http://') || artifact.startsWith('https://'))) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 1500); // 1.5s timeout fast
@@ -58,17 +59,52 @@ export async function analyzeSemantic(artifact: string, type: ArtifactType): Pro
                     indicators.push('Credential entry field (password) detected');
                     score += 65;
                     intent = 'MALICIOUS';
+                    confidence = 0.9;
                     // If it was already suspicious (trusted infra), this confirms abuse.
                 } else if (hasEmailInput) {
                     indicators.push('Email collection field detected');
                     score += 20;
-                    if (intent === 'BENIGN') intent = 'SUSPICIOUS';
+                    if (!intent || intent === 'BENIGN') {
+                        intent = 'SUSPICIOUS';
+                        confidence = 0.75;
+                    }
                 } else {
                     indicators.push('HTML Form detected');
                     score += 10;
+                    if (!intent) {
+                        intent = 'BENIGN';
+                        confidence = 0.6;
+                    }
                 }
+            } else {
+                 // No forms found - likely static content
+                 if (!intent) {
+                     intent = 'BENIGN';
+                     confidence = 0.8; // High confidence it's benign semantics (no forms)
+                 }
             }
+        } else {
+            // Resp not OK (4xx/5xx)
+            // This is ambiguous. Is it benign (broken link) or malicious (taken down)?
+            // Strict mode: We can't analyze content.
+            // But if we throw, we fail everything.
+            // User says "Returns nothing ... Returns partial data ... MUST throw an explicit error."
+            // If we can't analyze semantics, maybe we should throw?
+            throw new Error(`Semantic analysis failed: Upstream HTTP ${resp.status}`);
         }
+    } else {
+        // Not a URL or not http/https
+        if (!intent) {
+            intent = 'BENIGN';
+            confidence = 0.5; // Neutral confidence for non-fetchable artifacts
+        }
+    }
+
+    // Final Logic Check
+    if (!intent) {
+         // Should have been set by URL analysis or fetch results
+         intent = 'BENIGN';
+         confidence = 0.5;
     }
 
     // Final Score Normalization

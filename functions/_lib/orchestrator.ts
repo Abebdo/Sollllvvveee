@@ -127,48 +127,47 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         return createErrorResponse(new AppError(ErrorCode.VALIDATION_INVALID_INPUT, validation.error || 'Invalid input', 400));
     }
 
-    let artifact = sanitizeInput(rawArtifact);
-    let type = classifyArtifact(artifact);
-    let artifactClass = classifyArtifactContext(artifact);
-    const context = body.context;
+    try {
+        let artifact = sanitizeInput(rawArtifact);
+        let type = classifyArtifact(artifact);
+        let artifactClass = classifyArtifactContext(artifact);
+        const context = body.context;
 
-    if (type === 'url') {
-        const expanded = await expandUrl(artifact);
-        if (expanded !== artifact) {
-            artifact = expanded;
-            type = classifyArtifact(artifact);
-            artifactClass = classifyArtifactContext(artifact);
-        }
-    }
-
-    const cacheKey = `v4:analysis:${type}:${encodeURIComponent(artifact)}`;
-
-    if (!body.forceRefresh) {
-        try {
-            console.log(`[Analysis] Checking cache for key: ${cacheKey}`);
-            const cachedString = await env.ANALYSIS_CACHE.get(cacheKey);
-            if (cachedString) {
-                console.log('[Analysis] Cache HIT');
-                const cached = JSON.parse(cachedString);
-                return new Response(JSON.stringify({
-                    ok: true,
-                    error_code: null,
-                    message: 'Analysis retrieved from cache',
-                    data: { ...cached, meta: { ...cached.meta, cached: true } },
-                    id: crypto.randomUUID(),
-                    timestamp: new Date().toISOString(),
-                    status: 'completed',
-                    result: cached
-                }), {
-                    headers: { ...securityHeaders, ...rlHeaders, 'Content-Type': 'application/json' } as any
-                });
+        if (type === 'url') {
+            const expanded = await expandUrl(artifact);
+            if (expanded !== artifact) {
+                artifact = expanded;
+                type = classifyArtifact(artifact);
+                artifactClass = classifyArtifactContext(artifact);
             }
-        } catch (e) {
-            console.warn('Cache lookup failed', e);
         }
-    }
 
-    // --- EXECUTION ORDER ENFORCEMENT ---
+        const cacheKey = `v4:analysis:${type}:${encodeURIComponent(artifact)}`;
+
+        if (!body.forceRefresh) {
+            try {
+                console.log(`[Analysis] Checking cache for key: ${cacheKey}`);
+                const cachedString = await env.ANALYSIS_CACHE.get(cacheKey);
+                if (cachedString) {
+                    console.log('[Analysis] Cache HIT');
+                    const cached = JSON.parse(cachedString);
+                    return new Response(JSON.stringify({
+                        ok: true,
+                        error_code: null,
+                        message: 'Analysis retrieved from cache',
+                        data: { ...cached, meta: { ...cached.meta, cached: true } },
+                        id: crypto.randomUUID(),
+                        timestamp: new Date().toISOString(),
+                        status: 'completed',
+                        result: cached
+                    }), {
+                        headers: { ...securityHeaders, ...rlHeaders, 'Content-Type': 'application/json' } as any
+                    });
+                }
+            } catch (e) {
+                console.warn('Cache lookup failed', e);
+            }
+        }
 
     // 1. World Model & Root Trust
     console.log('[Analysis] Starting Root Trust analysis');
@@ -292,7 +291,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     }
 
     // 8. Verdict Logic
-    let verdict: RiskVerdict;
+    let verdict: RiskVerdict | null = null;
 
     if (totalScore > 80) verdict = 'MALICIOUS';
     else if (totalScore > 50) verdict = 'SUSPICIOUS';
@@ -317,12 +316,13 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     }
 
     // Usage Risk & Final Assessment
-    let usageRisk: UsageRiskVerdict = 'BENIGN';
+    let usageRisk: UsageRiskVerdict | null = null;
     if (semanticIntentData) usageRisk = semanticIntentData.intent;
     else if (totalScore > 80) usageRisk = 'MALICIOUS';
     else if (totalScore > 50) usageRisk = 'SUSPICIOUS';
+    else usageRisk = 'BENIGN';
 
-    let finalAssessment: FinalAssessment = 'SAFE';
+    let finalAssessment: FinalAssessment | null = null;
 
     // FINAL SAFETY RULE & Root Trust Logic
     if (isRootTrusted) {
@@ -340,6 +340,10 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
          else if (verdict === 'SUSPICIOUS') finalAssessment = 'SUSPICIOUS';
          else finalAssessment = 'SAFE';
     }
+
+    if (!verdict) throw new AppError(ErrorCode.INTERNAL_ERROR, "Verdict generation failed: verdict is null");
+    if (!finalAssessment) throw new AppError(ErrorCode.INTERNAL_ERROR, "Verdict generation failed: finalAssessment is null");
+    if (!usageRisk) throw new AppError(ErrorCode.INTERNAL_ERROR, "Verdict generation failed: usageRisk is null");
 
     // 9. Confidence Governor
     let rawConfidence = calculateConfidence(validEngineResults).score;
@@ -472,16 +476,38 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     }), {
         headers: { ...securityHeaders, ...rlHeaders, 'Content-Type': 'application/json' } as any
     });
+    } catch (e) {
+        console.error('[Analysis] Fatal Execution Error:', e);
+        if (e instanceof AppError) return createErrorResponse(e);
+        return createErrorResponse(new AppError(ErrorCode.INTERNAL_ERROR, e instanceof Error ? e.message : 'Unknown fatal error', 500));
+    }
 }
 
 function validateAnalysisResult(result: AnalysisResult) {
-    if (!result.verdict || result.verdict === 'UNKNOWN') {
-        throw new AppError(ErrorCode.INTERNAL_ERROR, "Analysis failed: Invalid verdict generated");
+    // 1. Verdict Integrity
+    const validVerdicts: RiskVerdict[] = ['MALICIOUS', 'SUSPICIOUS', 'BENIGN'];
+    if (!result.verdict || !validVerdicts.includes(result.verdict)) {
+        throw new AppError(ErrorCode.INTERNAL_ERROR, `Analysis failed: Invalid verdict '${result.verdict}'`);
     }
-    if (!result.confidence || result.confidence <= 0) {
-        throw new AppError(ErrorCode.INTERNAL_ERROR, "Analysis failed: Invalid confidence score");
+
+    // 2. Confidence Integrity (Strict Range)
+    if (typeof result.confidence !== 'number' || result.confidence <= 0 || result.confidence > 1.0) {
+        throw new AppError(ErrorCode.INTERNAL_ERROR, `Analysis failed: Invalid confidence score ${result.confidence}`);
     }
+
+    // 3. Signal Integrity
+    // Even 'Safe' domains should have signals (e.g. Allowlist match, Root Trust)
+    if (!result.signals || result.signals.length === 0) {
+        throw new AppError(ErrorCode.INTERNAL_ERROR, "Analysis failed: No signals generated");
+    }
+
+    // 4. Explanation Integrity
     if (!result.explanation || !result.explanation.summary) {
         throw new AppError(ErrorCode.INTERNAL_ERROR, "Analysis failed: Missing explanation");
+    }
+
+    // 5. Final Assessment Integrity
+    if (!result.final_assessment) {
+        throw new AppError(ErrorCode.INTERNAL_ERROR, "Analysis failed: Missing final assessment");
     }
 }

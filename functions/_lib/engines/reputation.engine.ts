@@ -21,7 +21,7 @@ export function analyzeReputation(artifact: string, type: ArtifactType): EngineR
     const signals: string[] = [];
     const trace: CognitiveTraceStep[] = [];
     let score = 0;
-    let confidence = 0.5; // Calculated below
+    let confidence = 0.0; // Default to 0 (No Signal)
 
     if (type === 'domain' || type === 'url') {
         let domain = artifact;
