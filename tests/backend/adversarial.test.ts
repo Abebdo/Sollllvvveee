@@ -80,9 +80,9 @@ describe('Adversarial & Epistemic Intelligence Tests', () => {
     });
 
     it('should downgrade verdict when context is Email', async () => {
-        // google.com is usually benign
+        // example.com is usually benign
         const req = mockRequest({
-            artifact: 'https://google.com',
+            artifact: 'https://example.com',
             context: { source: 'email' }
         });
         const res = await handleAnalysisRequest(req, mockEnv);

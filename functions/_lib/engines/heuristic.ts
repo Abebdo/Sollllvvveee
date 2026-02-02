@@ -79,7 +79,7 @@ export function analyzeHeuristic(artifact: string, type: ArtifactType): EngineRe
                      addFeature('long_path', 'Suspiciously long URL path or query', 10, 'Length > 50');
                 }
                 if (url.username || url.password) {
-                     addFeature('embedded_auth', 'URL contains embedded authentication credentials', 50, 'user:pass@host');
+                     addFeature('embedded_auth', 'URL contains embedded authentication credentials', 85, 'user:pass@host');
                 }
 
             } catch (e) {
