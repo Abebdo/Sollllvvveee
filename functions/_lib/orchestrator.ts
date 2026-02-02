@@ -47,6 +47,18 @@ const securityHeaders = {
 
 export async function handleAnalysisRequest(request: Request, env: Env): Promise<Response> {
     const start = Date.now();
+    console.log(`[ORCHESTRATOR] Analysis Started: ${request.method} ${request.url}`);
+
+    // CRITICAL: Validate Environment
+    if (!env.ANALYSIS_CACHE) {
+        console.error('[CRITICAL] Missing ANALYSIS_CACHE binding');
+        return createErrorResponse(new AppError(ErrorCode.INTERNAL_ERROR, 'Backend misconfigured: Missing KV binding', 500));
+    }
+    if (!env.AI) {
+        console.error('[CRITICAL] Missing AI binding');
+        return createErrorResponse(new AppError(ErrorCode.INTERNAL_ERROR, 'Backend misconfigured: Missing AI binding', 500));
+    }
+
     let rlStatus: any;
 
     try {

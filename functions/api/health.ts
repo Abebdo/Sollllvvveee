@@ -17,8 +17,15 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         dbStatus = 'disconnected';
     }
 
+    // Match exact user requirements:
+    // {
+    //   "status": "ok",
+    //   "engine": "solveya-analysis",
+    //   "version": "x.y.z"
+    // }
     return new Response(JSON.stringify({
-        status: 'operational',
+        status: 'ok',
+        engine: 'solveya-analysis',
         version: '2.0.0',
         timestamp: new Date().toISOString(),
         services: {
