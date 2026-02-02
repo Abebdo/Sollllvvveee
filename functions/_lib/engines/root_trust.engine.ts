@@ -1,7 +1,7 @@
 import { EngineResult } from './types';
 import { ArtifactType, DomainTrustVerdict } from '../types';
 
-const ROOT_TRUSTED_DOMAINS = new Set([
+export const ROOT_TRUSTED_DOMAINS = new Set([
   'google.com',
   'microsoft.com',
   'github.com',

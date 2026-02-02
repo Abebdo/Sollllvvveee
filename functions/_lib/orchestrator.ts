@@ -1,5 +1,7 @@
 import { Env, AnalysisRequest, AnalysisResult, RiskVerdict, FeatureResult, ApiResponse, RiskTimelineStage, AnalystFlags, ConflictResolution, EpistemicProfile, SelfCritique, UsageRiskVerdict, FinalAssessment } from './types';
 import { validateInput, sanitizeInput, classifyArtifact } from './validation';
+import { classifyArtifact as classifyArtifactContext } from './context/artifact_classifier';
+import { normalizeVerdict } from './analysis/verdict_normalizer';
 import { RateLimiter } from './ratelimit';
 import {
     analyzeHeuristic,
@@ -86,6 +88,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     let artifact = sanitizeInput(rawArtifact);
     let type = classifyArtifact(artifact);
+    let artifactClass = classifyArtifactContext(artifact);
     const context = body.context;
 
     // URL Expansion
@@ -95,6 +98,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
             artifact = expanded;
             // Re-classify just in case, though likely still URL
              type = classifyArtifact(artifact);
+             artifactClass = classifyArtifactContext(artifact);
         }
     }
 
@@ -137,14 +141,21 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     const isRootTrusted = rootTrust.is_trusted;
 
     // 5. Analysis Execution (Multi-Engine)
+    // PHASE 4: Engine Gating Enforcement
     const enginePromises = [
         { name: 'reputation', fn: () => analyzeReputation(artifact, type) },
         { name: 'structure', fn: () => analyzeStructure(artifact, type) },
-        { name: 'context', fn: () => analyzeContext(artifact, type, context) },
-        { name: 'heuristic', fn: () => analyzeHeuristic(artifact, type) },
-        { name: 'baseline', fn: () => analyzeBaseline(artifact, type) },
-        { name: 'semantic', fn: () => analyzeSemantic(artifact, type) }
     ];
+
+    if (artifactClass !== 'INFRASTRUCTURE_ROOT') {
+        // Only run these deep analysis engines if not a trusted root
+        enginePromises.push(
+            { name: 'context', fn: () => analyzeContext(artifact, type, context) },
+            { name: 'heuristic', fn: () => analyzeHeuristic(artifact, type) },
+            { name: 'baseline', fn: () => analyzeBaseline(artifact, type) },
+            { name: 'semantic', fn: () => analyzeSemantic(artifact, type) }
+        );
+    }
 
     const results = await Promise.allSettled(enginePromises.map(async (e) => {
         const t0 = Date.now();
@@ -417,7 +428,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         requires_human_attention: conflict.conflict_detected || fragility.level === 'HIGH' || (verdict === 'SUSPICIOUS' && totalScore < 70)
     };
 
-    const analystInsight = generateAnalystExplanation(validEngineResults, conflict, verdict, totalScore, fragility, confidenceRange, isRootTrusted, finalAssessment);
+    const analystInsight = generateAnalystExplanation(validEngineResults, conflict, verdict, totalScore, fragility, confidenceRange, isRootTrusted, finalAssessment, artifactClass);
 
     // Enrich Analyst Insight with Infrastructure Abuse if present
     if (infrastructure.trusted_infra_abuse) {
@@ -521,6 +532,9 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
             modelVersion: 'v4.0.0-intel'
         }
     };
+
+    // PHASE 5: Verdict Normalization Rules
+    normalizeVerdict(analysisResult, artifactClass);
 
     // --- PHASE 6: Persistence ---
 

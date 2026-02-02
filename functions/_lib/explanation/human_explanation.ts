@@ -1,5 +1,6 @@
 import { EngineResult } from '../engines/types';
 import { ConflictResolution, RiskVerdict, AnalystInsight, FragilityResult, ConfidenceRange, FinalAssessment } from '../types';
+import { ArtifactClass } from '../context/artifact_classifier';
 
 export function generateAnalystExplanation(
     results: EngineResult[],
@@ -9,8 +10,17 @@ export function generateAnalystExplanation(
     fragility: FragilityResult,
     confidenceRange: ConfidenceRange,
     rootTrusted: boolean = false,
-    finalAssessment?: FinalAssessment
+    finalAssessment?: FinalAssessment,
+    artifactClass?: ArtifactClass
 ): AnalystInsight {
+
+    if (artifactClass === 'INFRASTRUCTURE_ROOT') {
+        return {
+            analyst_summary: "This domain is a globally trusted infrastructure root. Content-level threat analysis is not applicable at this level.",
+            analyst_takeaways: ["Infrastructure Trust Confirmed", "No content-level analysis performed"],
+            analyst_recommendation: "Proceed with standard caution. Infrastructure is verified."
+        };
+    }
 
     // 1. Gather Signals
     const positiveSignals = results.filter(r => r.score < 20 && r.confidence > 0.5).map(r => r.summary || `${r.name} indicates safety`).filter(Boolean);
