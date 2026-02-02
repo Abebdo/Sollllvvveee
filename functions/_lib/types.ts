@@ -129,6 +129,14 @@ export interface AnalysisResult {
   uncertainty_flags?: string[];    // Why doubt exists
   self_critique?: SelfCritique;    // Mandatory self-reflection
 
+  // Phase 4: Epistemic Intelligence
+  analysis_quality?: {
+    confidence_level: 'high' | 'medium' | 'low';
+    stability_score: number;
+    anomaly_flags: string[];
+    judgment_notes: string[];
+  };
+
   // New Explainability & Auditability
   signals: string[]; // specific signals detected
   why_it_matters: string[]; // context on importance
