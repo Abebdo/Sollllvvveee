@@ -6,25 +6,34 @@ export const onRequestOptions: PagesFunction = async () => {
 };
 
 export const onRequestGet: PagesFunction<Env> = async (context) => {
-    let dbStatus = 'connected';
-    try {
-        if (context.env.ANALYSIS_CACHE) {
-             await context.env.ANALYSIS_CACHE.get('health_check');
-        } else {
-            dbStatus = 'disconnected (env missing)';
+    const checks: string[] = [];
+    let status = 'ok';
+
+    // Check Bindings
+    if (!context.env.ANALYSIS_CACHE) {
+        checks.push('ANALYSIS_CACHE missing');
+        status = 'degraded';
+    }
+    if (!context.env.AI) {
+        checks.push('AI binding missing');
+        // AI is technically optional for Tier 1, so maybe just warning
+    }
+
+    // Attempt a KV read (even if key missing, just to test connection)
+    if (context.env.ANALYSIS_CACHE) {
+        try {
+            await context.env.ANALYSIS_CACHE.get('health_check');
+        } catch (e) {
+            checks.push(`KV access failed: ${e.message}`);
+            status = 'error';
         }
-    } catch (e) {
-        dbStatus = 'disconnected';
     }
 
     return new Response(JSON.stringify({
-        status: 'operational',
-        version: '2.0.0',
-        timestamp: new Date().toISOString(),
-        services: {
-            api: 'up',
-            engine: 'up',
-            database: dbStatus
-        }
+        status: status,
+        engine: "solveya-analysis",
+        version: "2.0.0",
+        // Adding extra debug info in a way that doesn't break the contract
+        _diagnostics: checks.length > 0 ? checks : undefined
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 };

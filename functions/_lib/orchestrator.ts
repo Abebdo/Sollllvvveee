@@ -47,11 +47,14 @@ const securityHeaders = {
 
 export async function handleAnalysisRequest(request: Request, env: Env): Promise<Response> {
     const start = Date.now();
+    console.log(`[Analysis] Request received: ${request.method} ${request.url}`);
+
     let rlStatus: any;
 
     try {
         const rateLimiter = new RateLimiter(env, request);
         rlStatus = await rateLimiter.check(1);
+        console.log('[Analysis] Rate limit check passed');
 
         if (rlStatus.limited) {
             throw new AppError(ErrorCode.RATE_LIMIT_EXCEEDED, 'Rate limit exceeded', 429, {
@@ -100,8 +103,10 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     if (!body.forceRefresh) {
         try {
+            console.log(`[Analysis] Checking cache for key: ${cacheKey}`);
             const cachedString = await env.ANALYSIS_CACHE.get(cacheKey);
             if (cachedString) {
+                console.log('[Analysis] Cache HIT');
                 const cached = JSON.parse(cachedString);
                 return new Response(JSON.stringify({
                     ok: true,
@@ -124,9 +129,11 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     // --- EXECUTION ORDER ENFORCEMENT ---
 
     // 1. World Model & Root Trust
+    console.log('[Analysis] Starting Root Trust analysis');
     const rootTrust = await analyzeRootTrust(artifact, type);
     const isRootTrusted = rootTrust.is_trusted;
     const realityRole = rootTrust.role;
+    console.log(`[Analysis] Root Trust result: ${isRootTrusted} (${realityRole})`);
 
     // 2. Parallel: Engines + Memory
     const enginePromises: Array<{ name: string; fn: () => any }> = [
@@ -157,6 +164,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         consultMemory(env, artifact)
     ]);
 
+    console.log('[Analysis] Engines and Memory lookup completed');
     const memory = memoryResult;
 
     // 3. Aggregation
@@ -397,9 +405,12 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     };
 
     // Persistence
+    console.log('[Analysis] Persisting results');
     await updateMemory(env, artifact, totalScore);
     if (totalScore > 50) await updateCampaignMemory(env, fingerprint, artifact);
     env.ANALYSIS_CACHE.put(cacheKey, JSON.stringify(analysisResult), { expirationTtl: 86400 }).catch(console.error);
+
+    console.log(`[Analysis] Completed in ${Date.now() - start}ms`);
 
     return new Response(JSON.stringify({
         ok: true,
