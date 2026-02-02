@@ -6,7 +6,8 @@ export function calculateConfidence(results: EngineResult[]): ConfidenceProfile 
     const validResults = results.filter(r => r && r.confidence > 0);
 
     if (validResults.length === 0) {
-        return { score: 0.40, reasons: ['No engines returned results'] }; // Floor at 40%
+        // FAIL HARD - Do not fabricate confidence
+        throw new Error("Confidence calculation failed: No valid engine results available");
     }
 
     // 1. Base Confidence: Average of engine confidences
