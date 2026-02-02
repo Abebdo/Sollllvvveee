@@ -105,6 +105,13 @@ export function analyzeHeuristic(artifact: string, type: ArtifactType): EngineRe
         if (domain.includes('.com-') || domain.includes('.net-') || domain.includes('.org-') || domain.includes('paypal') && !domain.endsWith('.paypal.com')) {
              addFeature('typosquatting', 'Potential typosquatting or brand masquerading', 45, domain);
         }
+
+        // Homoglyph / Lookalike Detection (Visual Spoofing)
+        // Detects common visual hacks (e.g., paypaI, googIe, arnazon)
+        const homoglyphs = /paypai|googIe|rnicrosoft|arnazon|faceb00k|lnstagram|linkedin|netflix/i;
+        if (homoglyphs.test(domain)) {
+             addFeature('typosquatting', 'Detected homoglyph or visual spoofing of major brand', 55, domain);
+        }
     }
 
     if (type === 'email') {

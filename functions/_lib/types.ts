@@ -73,7 +73,51 @@ export interface ConfidenceProfile {
   reasons: string[];
 }
 
+export interface ConfidenceRange {
+  min: number;
+  most_likely: number;
+  max: number;
+  uncertainty: number;
+}
+
+export interface RiskTimelineStage {
+  stage: string;
+  score: number;
+}
+
 // --- Meta Intelligence Types ---
+
+export interface MetaJudgmentResult {
+  source_diversity: number;        // 0.0 – 1.0
+  agreement_score: number;         // 0.0 – 1.0
+  fragility_level: 'LOW' | 'MEDIUM' | 'HIGH';
+  confidence_adjustment: number;   // multiplier
+  warnings?: string[];
+  // Legacy/Compat fields
+  consensus_score?: number;
+  disagreement_level?: 'low' | 'medium' | 'high';
+  contradictions?: string[];
+  judgment_notes?: string[];
+}
+
+export interface SemanticIntentResult {
+  intent: 'BENIGN' | 'SUSPICIOUS' | 'MALICIOUS';
+  confidence: number;
+  indicators: string[];
+}
+
+export interface FragilityResult {
+  score: number; // 0–10
+  level: 'LOW' | 'MEDIUM' | 'HIGH';
+  reasons: string[];
+}
+
+export interface ContextualVerdict {
+  original_verdict: RiskVerdict;
+  adjusted_verdict: RiskVerdict;
+  context_downgrade: boolean;
+  context_notes: string[];
+}
 
 export interface MetaAnalysisResult {
   consensus_score: number;
@@ -146,11 +190,25 @@ export interface AnalysisResult {
   // Categorized intelligence
   features: Record<string, FeatureResult>;
 
+  // Phase 5: Deep Intelligence Fields
+  meta_judgment?: MetaJudgmentResult;
+  semantic_intent?: SemanticIntentResult;
+  fragility?: FragilityResult;
+  contextual_verdict?: ContextualVerdict;
+  risk_timeline?: RiskTimelineStage[];
+  confidence_range?: ConfidenceRange;
+
   // Explainability
   explanation: {
     primaryFactors: string[];
     technicalAnalysis: string;
     recommendedActions: string[];
+    // Extended XAI fields
+    summary?: string; // override root summary if needed
+    positive_factors?: string[];
+    negative_factors?: string[];
+    weights?: Record<string, number>;
+    reasoning_steps?: string[];
   };
 
   meta: {
