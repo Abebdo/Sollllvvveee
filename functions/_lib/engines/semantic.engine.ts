@@ -96,7 +96,7 @@ export async function analyzeSemantic(artifact: string, type: ArtifactType): Pro
         // Not a URL or not http/https
         if (!intent) {
             intent = 'BENIGN';
-            confidence = 0.5; // Neutral confidence for non-fetchable artifacts
+            confidence = 0.0; // No Signal
         }
     }
 
@@ -104,7 +104,7 @@ export async function analyzeSemantic(artifact: string, type: ArtifactType): Pro
     if (!intent) {
          // Should have been set by URL analysis or fetch results
          intent = 'BENIGN';
-         confidence = 0.5;
+         confidence = 0.0;
     }
 
     // Final Score Normalization
