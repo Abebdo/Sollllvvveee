@@ -2,7 +2,7 @@ import { ArtifactType, FeatureResult } from '../types';
 import { EngineResult } from './types';
 import { CognitiveTraceStep } from '../cognitive_trace';
 
-// Mock Databases
+// Static Reputation Lists
 const SAFE_DOMAINS = new Set([
     'google.com', 'www.google.com',
     'microsoft.com', 'www.microsoft.com',

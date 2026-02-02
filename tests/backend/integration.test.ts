@@ -58,4 +58,15 @@ describe('API Integration', () => {
         expect(data.ok).toBe(false);
         expect(data.error_code).toContain('RATE_LIMIT');
     });
+
+    it('should reject invalid input with structured error', async () => {
+        const req = mockRequest({ artifact: '127.0.0.1' }); // Private IP
+        const res = await handleAnalysisRequest(req, mockEnv);
+        expect(res.status).toBe(400);
+
+        const data = await res.json() as any;
+        expect(data.ok).toBe(false);
+        expect(data.error_code).toContain('VALIDATION');
+        expect(data.message).toBeDefined();
+    });
 });

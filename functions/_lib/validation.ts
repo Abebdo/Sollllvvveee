@@ -9,15 +9,24 @@ export function sanitizeInput(input: string): string {
     // Trim
     cleaned = cleaned.trim();
 
-    // Remove null bytes and other control characters (keeping newline/tab might be okay for text, but for artifacts usually not)
-    // We strip everything < 32 except maybe TAB (9), LF (10), CR (13) if it were text.
-    // But for artifacts (URL/Domain/Hash), control chars are invalid.
+    // Remove null bytes and other control characters
     cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 
-    // Unicode homoglyph stripping or normalization is handled by NFKC mostly.
+    // Canonicalize URLs
+    if (cleaned.includes('://')) {
+        try {
+            const url = new URL(cleaned);
+            return url.href; // Normalizes protocol/host to lowercase, escapes path
+        } catch (e) {
+            // Invalid URL, return as is (validation will catch it or engine will fail)
+        }
+    }
 
-    // Prevent directory traversal sequences in raw string (visual only, as we don't use it for file access)
-    // But good to clean.
+    // Canonicalize Domain/Email (Lowercase)
+    // Simple heuristic: if no spaces and looks like domain/email
+    if (!cleaned.includes(' ') && !cleaned.includes('/')) {
+        return cleaned.toLowerCase();
+    }
 
     return cleaned;
 }
@@ -39,18 +48,48 @@ export function validateInput(input: string): { valid: boolean; error?: string }
         return { valid: false, error: 'Input is empty' };
     }
 
-    if (input.length > MAX_INPUT_LENGTH) {
+    const normalized = input.trim();
+
+    if (normalized.length > MAX_INPUT_LENGTH) {
         return { valid: false, error: `Input exceeds maximum length of ${MAX_INPUT_LENGTH} characters` };
     }
 
     // Basic ReDoS protection check (avoid super long repeated characters if not a hash)
-    if (input.length > 100 && /(.)\1{50,}/.test(input)) {
+    if (normalized.length > 100 && /(.)\1{50,}/.test(normalized)) {
         return { valid: false, error: 'Suspicious input pattern detected' };
     }
 
     // Metadata service protection (AWS/GCP/Azure)
-    if (input.includes('169.254.169.254')) {
+    if (normalized.includes('169.254.169.254')) {
         return { valid: false, error: 'Restricted input' };
+    }
+
+    // Check for Private IPs / Localhost
+    // We check against the trimmed input
+    for (const regex of PRIVATE_IP_REGEX) {
+        if (regex.test(normalized)) {
+             return { valid: false, error: 'Input contains restricted IP range' };
+        }
+    }
+
+    // URL-specific checks
+    if (normalized.includes('://')) {
+        try {
+            const url = new URL(normalized);
+            const hostname = url.hostname;
+
+            if (hostname === 'localhost') {
+                return { valid: false, error: 'Restricted input' };
+            }
+
+            for (const regex of PRIVATE_IP_REGEX) {
+                if (regex.test(hostname)) {
+                    return { valid: false, error: 'Restricted IP in URL' };
+                }
+            }
+        } catch (e) {
+            // Invalid URL format
+        }
     }
 
     return { valid: true };
