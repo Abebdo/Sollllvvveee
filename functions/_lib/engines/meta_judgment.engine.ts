@@ -5,21 +5,9 @@ export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult
     const validResults = results.filter(r => r && typeof r.score === 'number');
 
     if (validResults.length === 0) {
-        return {
-            source_diversity: 0,
-            agreement_score: 0,
-            echo_chamber_risk: 'HIGH',
-            fragility_level: 'HIGH',
-            confidence_adjustment: 0.4, // Heavy penalty
-            warnings: ['No valid engine results available'],
-            engine_count: 0,
-            engine_family_diversity: 0,
-            agreement_ratio: 0,
-            consensus_score: 0,
-            disagreement_level: 'high',
-            contradictions: ['No valid engine results available'],
-            judgment_notes: ['Insufficient data for judgment']
-        };
+        // STRICT MODE: No valid engines -> System Failure.
+        // The orchestrator must guarantee at least minimum critical engines.
+        throw new Error("Meta-Judgment Analysis failed: No valid engine results available for consensus.");
     }
 
     // 1. Engine Families
