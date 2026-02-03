@@ -57,8 +57,8 @@ function createRequest(artifact: string): Request {
 }
 
 // Default engine responses
-const defaultSafe = { score: 0, confidence: 0.9, summary: 'Safe' };
-const defaultNeutral = { score: 10, confidence: 0.5, summary: 'Neutral' };
+const defaultSafe = { score: 0, confidence: 0.9, summary: 'Safe', signals: ['safe_signal'] };
+const defaultNeutral = { score: 10, confidence: 0.5, summary: 'Neutral', signals: ['neutral_signal'] };
 
 describe('Master Acceptance Tests - Solveya', () => {
 
@@ -164,8 +164,8 @@ describe('Master Acceptance Tests - Solveya', () => {
         (memory.consultMemory as any).mockResolvedValue({ seen_count: 0, history_scores: [], volatility: 0 });
 
         // Engines return neutral/safe but low confidence or empty signals
-        (engines.analyzeReputation as any).mockResolvedValue({ score: 10, confidence: 0.5, name: 'reputation' }); // Neutral
-        (engines.analyzeHeuristic as any).mockResolvedValue({ score: 0, confidence: 0.5, name: 'heuristic' });
+        (engines.analyzeReputation as any).mockResolvedValue({ score: 10, confidence: 0.5, name: 'reputation', signals: ['neutral'] }); // Neutral
+        (engines.analyzeHeuristic as any).mockResolvedValue({ score: 0, confidence: 0.5, name: 'heuristic', signals: ['neutral'] });
 
         const req = createRequest('random-blog-123.com');
         const res = await handleAnalysisRequest(req, mockEnv);

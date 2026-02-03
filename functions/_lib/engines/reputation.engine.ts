@@ -1,6 +1,7 @@
 import { ArtifactType, FeatureResult } from '../types';
 import { EngineResult } from './types';
 import { CognitiveTraceStep } from '../cognitive_trace';
+import { EngineFailureError } from '../errors';
 
 // Static Reputation Lists
 const SAFE_DOMAINS = new Set([
@@ -26,8 +27,11 @@ export function analyzeReputation(artifact: string, type: ArtifactType): EngineR
     if (type === 'domain' || type === 'url') {
         let domain = artifact;
         if (type === 'url') {
-            // STRICT: No error swallowing
-            domain = new URL(artifact).hostname;
+            try {
+                domain = new URL(artifact).hostname;
+            } catch (e) {
+                throw new EngineFailureError('reputation', `Invalid URL: ${artifact}`);
+            }
         }
 
         // Allowlist
@@ -81,6 +85,21 @@ export function analyzeReputation(artifact: string, type: ArtifactType): EngineR
              score += 90;
              confidence = 0.9;
         }
+    }
+
+    // MANDATORY SIGNAL CHECK
+    if (signals.length === 0) {
+        signals.push('reputation_neutral');
+        features.push({
+            id: 'reputation_neutral',
+            tier: 'TIER_1_LOCAL',
+            detected: true,
+            riskContribution: 0,
+            description: 'No known reputation risks detected',
+            evidence: []
+        });
+        // We checked our lists and found nothing. Confidence is non-zero but low because our lists are small.
+        confidence = 0.1;
     }
 
     return {

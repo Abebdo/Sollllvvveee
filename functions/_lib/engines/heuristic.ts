@@ -1,6 +1,7 @@
 import { ArtifactType, FeatureResult } from '../types';
 import { EngineResult } from './types';
 import { CognitiveTraceStep } from '../cognitive_trace';
+import { EngineFailureError } from '../errors';
 
 // Retain constants
 const SUSPICIOUS_TLDS = new Set([
@@ -65,21 +66,25 @@ export function analyzeHeuristic(artifact: string, type: ArtifactType): EngineRe
         // Extract domain
         let domain = artifact;
         if (type === 'url') {
-            // STRICT: Crash on invalid URL if classified as URL
-            const url = new URL(artifact);
-            domain = url.hostname;
+            try {
+                // STRICT: Crash on invalid URL if classified as URL
+                const url = new URL(artifact);
+                domain = url.hostname;
 
-            // IP Host Check
-            if (/^\d+\.\d+\.\d+\.\d+$/.test(domain)) {
-                    addFeature('ip_host', 'URL uses raw IP address instead of domain', 40, domain);
-            }
+                // IP Host Check
+                if (/^\d+\.\d+\.\d+\.\d+$/.test(domain)) {
+                        addFeature('ip_host', 'URL uses raw IP address instead of domain', 40, domain);
+                }
 
-            // Suspicious Path/Query
-            if (url.pathname.length > 50 || url.search.length > 50) {
-                    addFeature('long_path', 'Suspiciously long URL path or query', 10, 'Length > 50');
-            }
-            if (url.username || url.password) {
-                    addFeature('embedded_auth', 'URL contains embedded authentication credentials', 85, 'user:pass@host');
+                // Suspicious Path/Query
+                if (url.pathname.length > 50 || url.search.length > 50) {
+                        addFeature('long_path', 'Suspiciously long URL path or query', 10, 'Length > 50');
+                }
+                if (url.username || url.password) {
+                        addFeature('embedded_auth', 'URL contains embedded authentication credentials', 85, 'user:pass@host');
+                }
+            } catch (e) {
+                 throw new EngineFailureError('heuristic', `Invalid URL: ${artifact}`);
             }
         }
 
@@ -152,6 +157,12 @@ export function analyzeHeuristic(artifact: string, type: ArtifactType): EngineRe
     }
 
     explanation += ' (Analysis based on static pattern matching and heuristic rules).';
+
+    if (signals.length === 0) {
+        signals.push('heuristic_neutral');
+        // Do NOT add feature for neutral heuristic to avoid clutter?
+        // But need signals.
+    }
 
     return {
         name: 'heuristic',

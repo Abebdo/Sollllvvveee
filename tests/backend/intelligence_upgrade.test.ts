@@ -61,21 +61,21 @@ describe('Final Intelligence Upgrade', () => {
         });
 
         // Setup default benign responses
-        (analyzeReputation as any).mockResolvedValue({ name: 'reputation', score: 0, confidence: 1.0 });
-        (analyzeSemantic as any).mockResolvedValue({ name: 'semantic', score: 0, confidence: 0.5 });
-        (analyzeStructure as any).mockResolvedValue({ name: 'structure', score: 0, confidence: 0.8 });
-        (analyzeHeuristic as any).mockResolvedValue({ name: 'heuristic', score: 0, confidence: 0.6 });
-        (analyzeBaseline as any).mockResolvedValue({ name: 'baseline', score: 0, confidence: 0.5 });
-        (analyzeContext as any).mockResolvedValue({ name: 'context', score: 0, confidence: 0.5, context_downgrade: false, adjusted_verdict: 'BENIGN' });
+        (analyzeReputation as any).mockResolvedValue({ name: 'reputation', score: 0, confidence: 1.0, signals: ['mock_signal'] });
+        (analyzeSemantic as any).mockResolvedValue({ name: 'semantic', score: 0, confidence: 0.5, signals: ['mock_signal'] });
+        (analyzeStructure as any).mockResolvedValue({ name: 'structure', score: 0, confidence: 0.8, signals: ['mock_signal'] });
+        (analyzeHeuristic as any).mockResolvedValue({ name: 'heuristic', score: 0, confidence: 0.6, signals: ['mock_signal'] });
+        (analyzeBaseline as any).mockResolvedValue({ name: 'baseline', score: 0, confidence: 0.5, signals: ['mock_signal'] });
+        (analyzeContext as any).mockResolvedValue({ name: 'context', score: 0, confidence: 0.5, context_downgrade: false, adjusted_verdict: 'BENIGN', signals: ['mock_signal'] });
     });
 
     it('should detect Conflict: High Reputation vs Malicious Intent', async () => {
         (analyzeReputation as any).mockResolvedValue({
-            name: 'reputation', score: 0, confidence: 1.0, summary: 'Highly Trusted'
+            name: 'reputation', score: 0, confidence: 1.0, summary: 'Highly Trusted', signals: ['mock_signal']
         });
         (analyzeSemantic as any).mockResolvedValue({
             name: 'semantic', score: 80, confidence: 0.9, summary: 'Credential harvesting detected',
-            semantic_intent: { intent: 'MALICIOUS' }
+            semantic_intent: { intent: 'MALICIOUS' }, signals: ['mock_signal']
         });
 
         const req = mockRequest({ artifact: 'https://docs.google.com/evil' });
@@ -92,11 +92,11 @@ describe('Final Intelligence Upgrade', () => {
 
     it('should generate Analyst Insight', async () => {
         (analyzeReputation as any).mockResolvedValue({
-            name: 'reputation', score: 0, confidence: 1.0, summary: 'Highly Trusted'
+            name: 'reputation', score: 0, confidence: 1.0, summary: 'Highly Trusted', signals: ['mock_signal']
         });
         (analyzeSemantic as any).mockResolvedValue({
             name: 'semantic', score: 80, confidence: 0.9, summary: 'Credential harvesting detected',
-            semantic_intent: { intent: 'MALICIOUS' }
+            semantic_intent: { intent: 'MALICIOUS' }, signals: ['mock_signal']
         });
 
         const req = mockRequest({ artifact: 'https://docs.google.com/evil' });
@@ -110,10 +110,10 @@ describe('Final Intelligence Upgrade', () => {
     });
 
     it('should kill absolute trust (downgrade benign to suspicious if intent is bad)', async () => {
-        (analyzeReputation as any).mockResolvedValue({ name: 'reputation', score: 0, confidence: 1.0 });
+        (analyzeReputation as any).mockResolvedValue({ name: 'reputation', score: 0, confidence: 1.0, signals: ['mock_signal'] });
         (analyzeSemantic as any).mockResolvedValue({
             name: 'semantic', score: 40, confidence: 0.8,
-            semantic_intent: { intent: 'MALICIOUS' }
+            semantic_intent: { intent: 'MALICIOUS' }, signals: ['mock_signal']
         });
 
         const req = mockRequest({ artifact: 'https://trustme.com/login' });
@@ -148,9 +148,10 @@ describe('Final Intelligence Upgrade', () => {
             score: 60,
             confidence: 0.9,
             features: [{ id: 'subdomain_abuse', description: 'Detected google...', tier: 'TIER_1_LOCAL', detected: true, riskContribution: 60, evidence: [] }],
-            summary: 'Subdomain abuse detected'
+            summary: 'Subdomain abuse detected',
+            signals: ['subdomain_abuse']
         });
-        (analyzeReputation as any).mockResolvedValue({ name: 'reputation', score: 0, confidence: 1.0 });
+        (analyzeReputation as any).mockResolvedValue({ name: 'reputation', score: 0, confidence: 1.0, signals: ['mock_signal'] });
 
         const req = mockRequest({ artifact: 'https://google.com.evil.com' });
         const res = await handleAnalysisRequest(req, mockEnv);

@@ -99,7 +99,7 @@ describe('Production Compliance & Atomic Analysis', () => {
     expect(result.signals.length).toBeGreaterThan(0);
   });
 
-  it('should FAIL SAFE (200) with warnings if a mandatory engine fails', async () => {
+  it('should FAIL EXPLICITLY (500) if a mandatory engine fails', async () => {
     // Simulate Semantic Engine failure (e.g. Network Error)
     // analyzeSemantic throws if fetch fails.
     (global.fetch as any).mockResolvedValue({
@@ -111,14 +111,11 @@ describe('Production Compliance & Atomic Analysis', () => {
     const req = createRequest({ artifact: 'https://broken-api.com' });
     const res = await handleAnalysisRequest(req, mockEnv);
 
-    // Expect 200 OK (Graceful Degradation)
-    expect(res.status).toBe(200);
+    // Expect 500 Internal Error (Fail Explicitly)
+    expect(res.status).toBe(500);
     const body = await res.json() as any;
 
-    expect(body.ok).toBe(true);
-    expect(body.data).toBeDefined();
-
-    // Compliance: Ensure we have signals (even if just "No threats detected")
-    expect(body.data.signals.length).toBeGreaterThan(0);
+    expect(body.ok).toBe(false);
+    expect(body.error_code).toMatch(/E_ENGINE_FAILURE|E_INTERNAL_ERROR/);
   });
 });

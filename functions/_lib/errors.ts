@@ -22,17 +22,25 @@ export class AppError extends Error {
   }
 }
 
+export class EngineFailureError extends AppError {
+    constructor(engineName: string, reason: string) {
+        super(ErrorCode.ENGINE_FAILURE, `${engineName} failed: ${reason}`, 500);
+    }
+}
+
 export function createErrorResponse(error: AppError | Error): Response {
   const isAppError = error instanceof AppError;
   const code = isAppError ? (error as AppError).code : ErrorCode.INTERNAL_ERROR;
   const message = error.message || 'An unexpected error occurred';
   const status = isAppError ? (error as AppError).statusCode : 500;
+  const details = isAppError ? (error as AppError).details : undefined;
 
   return new Response(JSON.stringify({
     ok: false,
     error_code: code,
     message: message,
-    data: null
+    data: null,
+    details: details
   }), {
     status,
     headers: { 'Content-Type': 'application/json' }
