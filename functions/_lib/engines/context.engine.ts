@@ -93,7 +93,7 @@ export function analyzeContext(artifact: string, type: ArtifactType, context?: A
 
     if (signals.length === 0) {
         // Explicit analysis completion signal (Proof of Work)
-        const id = 'context_analysis_completed';
+        const id = 'context_environment_verified';
         signals.push(id);
         features.push({
             id,
@@ -101,7 +101,7 @@ export function analyzeContext(artifact: string, type: ArtifactType, context?: A
             detected: true,
             riskContribution: 0,
             description: 'Contextual analysis completed; no significant modifiers detected.',
-            evidence: [context?.source || 'Default Context']
+            evidence: [`Evaluated source: ${context?.source || 'No Source Provided'}`]
         });
     }
 

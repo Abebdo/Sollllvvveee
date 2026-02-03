@@ -86,7 +86,7 @@ export function analyzeReputation(artifact: string, type: ArtifactType): EngineR
              confidence = 0.9;
         } else {
              // Analyzed but no match found - Explicit Proof of Analysis
-             const id = 'reputation_clean_check';
+             const id = 'reputation_sources_checked';
              signals.push(id);
              features.push({
                  id,
@@ -94,7 +94,7 @@ export function analyzeReputation(artifact: string, type: ArtifactType): EngineR
                  detected: true,
                  riskContribution: 0,
                  description: 'Analyzed against known malicious patterns; no matches found.',
-                 evidence: [`Checked ${MALICIOUS_PATTERNS.length} patterns`]
+                 evidence: [`Checked safe_domains list`, `Checked ${MALICIOUS_PATTERNS.length} malicious patterns`]
              });
              // We ran the check, so confidence is low (limited list) but non-zero
              confidence = 0.1;

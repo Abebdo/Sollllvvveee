@@ -114,10 +114,9 @@ export async function analyzeSemantic(artifact: string, type: ArtifactType): Pro
 
     // Ensure MVR: If intent is BENIGN and no indicators, but we successfully ran checks (url or content),
     // we need to signal that we analyzed it.
-    // If we fetched content, we added 'semantic_content_analyzed'.
-    // If we only checked URL (e.g. not http), and found nothing, we should add 'semantic_url_clean'.
     if (indicators.length === 0) {
-        indicators.push('semantic_url_clean');
+        indicators.push('semantic_url_vetted');
+        // Implicit evidence: we ran the regex checks on the URL above.
     }
 
     // Final Score Normalization
