@@ -162,15 +162,13 @@ export function analyzeHeuristic(artifact: string, type: ArtifactType): EngineRe
         // Explicit "Clean" Signal - Proof of Work
         const id = 'heuristic_checks_passed';
         signals.push(id);
-        // We do NOT add a FEATURE for this, because it's not a risk feature.
-        // It's a signal that the engine passed all checks.
         features.push({
             id,
             tier: 'TIER_1_LOCAL',
             detected: true,
             riskContribution: 0,
             description: 'Heuristic analysis completed; no malicious patterns matched.',
-            evidence: ['Passed static pattern analysis']
+            evidence: ['Passed static pattern analysis'] // Simple evidence
         });
     }
 

@@ -66,7 +66,7 @@ export function analyzeStructure(artifact: string, type: ArtifactType): EngineRe
             score += 20;
         } else {
             // Low Entropy -> Safe Structure (Explicit Signal)
-            const id = 'structure_low_entropy';
+            const id = 'structure_entropy_verified';
             signals.push(id);
             features.push({
                 id,

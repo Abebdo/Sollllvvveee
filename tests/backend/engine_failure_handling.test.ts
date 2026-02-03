@@ -46,23 +46,32 @@ describe('Root Cause Analysis Verification', () => {
         mockEnv.ANALYSIS_CACHE.clear();
     });
 
-    it('should SUCCEED for benign domain (was failing with 500)', async () => {
+    it('should SUCCEED for benign domain with REAL PROOF-OF-WORK signals', async () => {
         const req = mockRequest({ artifact: 'https://example.com', forceRefresh: true });
 
         try {
             const res = await handleAnalysisRequest(req, mockEnv);
             const data = await res.json() as any;
 
-            console.log('Analysis Result Status:', res.status);
-            if (res.status !== 200) {
-                 console.log('Analysis Result Data:', JSON.stringify(data, null, 2));
-            }
-
             expect(res.status).toBe(200);
             const result = data.data as AnalysisResult;
+
             expect(result.verdict).toBe('BENIGN');
             expect(result.signals.length).toBeGreaterThan(0);
-            expect(result.signals).toContain('reputation_clean_check');
+
+            // Assert exact proof-of-work signals, not just 'neutral' placeholders
+            expect(result.signals).toContain('reputation_sources_checked'); // Evidence of list checking
+            expect(result.signals).toContain('structure_entropy_verified'); // Evidence of calculation
+            expect(result.signals).toContain('heuristic_checks_passed');    // Evidence of pattern matching
+
+            // Check that features actually contain evidence
+            const repFeature = result.features['reputation_sources_checked'];
+            expect(repFeature).toBeDefined();
+            expect(repFeature.evidence[0]).toContain('Checked');
+
+            const structFeature = result.features['structure_entropy_verified'];
+            expect(structFeature).toBeDefined();
+            expect(structFeature.evidence[0]).toContain('Entropy:');
 
         } catch (e) {
             console.error('Test Execution Failed:', e);
@@ -76,9 +85,6 @@ describe('Root Cause Analysis Verification', () => {
         try {
             const res = await handleAnalysisRequest(req, mockEnv);
             const data = await res.json() as any;
-
-            console.log('Analysis Result Status:', res.status);
-            console.log('Analysis Result Data:', JSON.stringify(data, null, 2));
 
             // Should be 500 (Internal Error) but with EngineFailureError details
             expect(res.status).toBe(500);
