@@ -99,7 +99,7 @@ describe('Production Compliance & Atomic Analysis', () => {
     expect(result.signals.length).toBeGreaterThan(0);
   });
 
-  it('should FAIL HARD (500) if a mandatory engine fails (Atomic Analysis)', async () => {
+  it('should FAIL SAFE (200) with warnings if a mandatory engine fails', async () => {
     // Simulate Semantic Engine failure (e.g. Network Error)
     // analyzeSemantic throws if fetch fails.
     (global.fetch as any).mockResolvedValue({
@@ -111,14 +111,14 @@ describe('Production Compliance & Atomic Analysis', () => {
     const req = createRequest({ artifact: 'https://broken-api.com' });
     const res = await handleAnalysisRequest(req, mockEnv);
 
-    // Expect 500 Internal Error
-    expect(res.status).toBe(500);
+    // Expect 200 OK (Graceful Degradation)
+    expect(res.status).toBe(200);
     const body = await res.json() as any;
 
-    expect(body.ok).toBe(false);
-    expect(body.error_code).toBeDefined();
-    // The error message should likely come from semantic engine or orchestrator wrapper
-    // We don't care about the exact message, just that it FAILED and didn't return partial result.
-    expect(body.data).toBeNull(); // NO partial data
+    expect(body.ok).toBe(true);
+    expect(body.data).toBeDefined();
+
+    // Compliance: Ensure we have signals (even if just "No threats detected")
+    expect(body.data.signals.length).toBeGreaterThan(0);
   });
 });

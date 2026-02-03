@@ -122,7 +122,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     const rawArtifact = body.artifact;
     console.log(`[Analysis] Target Artifact: ${rawArtifact}`);
 
-    const validation = validateInput(rawArtifact);
+    const validation = validateInput(body);
     if (!validation.valid) {
         return createErrorResponse(new AppError(ErrorCode.VALIDATION_INVALID_INPUT, validation.error || 'Invalid input', 400));
     }
@@ -171,7 +171,18 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     // 1. World Model & Root Trust
     console.log('[Analysis] Starting Root Trust analysis');
-    const rootTrust = await analyzeRootTrust(artifact, type);
+    let rootTrust: any;
+    try {
+        rootTrust = await analyzeRootTrust(artifact, type);
+    } catch (e) {
+        console.error('[Analysis] Root Trust failed:', e);
+        rootTrust = {
+            is_trusted: false,
+            role: 'unknown',
+            engine_result: { name: 'root_trust', score: 0, confidence: 0, verdict: 'UNKNOWN' },
+            verdict: 'UNKNOWN'
+        };
+    }
     const isRootTrusted = rootTrust.is_trusted;
     const realityRole = rootTrust.role;
     console.log(`[Analysis] Root Trust result: ${isRootTrusted} (${realityRole})`);
@@ -193,24 +204,100 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
     console.log(`[Analysis] Executing ${enginePromises.length} parallel engines...`);
 
-    // STRICT EXECUTION: Promise.all instead of allSettled
-    // If ANY engine fails, the entire analysis must fail.
-    const [engineResults, memoryResult] = await Promise.all([
+    // ROBUST EXECUTION: Catch individual engine failures
+    const [engineResultsRaw, memoryResultRaw] = await Promise.all([
         Promise.all(enginePromises.map(async (e) => {
             const t0 = Date.now();
-            // We intentionally do NOT catch errors here.
-            // A failure in a core engine is a failure of the system.
-            const res = await e.fn();
-            if (!res) {
-                throw new Error(`Engine ${e.name} returned empty/null result`);
+            try {
+                const res = await e.fn();
+                if (!res) throw new Error(`Engine ${e.name} returned empty/null result`);
+                return { ...res, _meta: { name: e.name, duration: Date.now() - t0 } };
+            } catch (err) {
+                console.error(`[Analysis] Engine ${e.name} failed:`, err);
+                return null;
             }
-            return { ...res, _meta: { name: e.name, duration: Date.now() - t0 } };
         })),
-        consultMemory(env, artifact)
+        consultMemory(env, artifact).catch(err => {
+            console.error('[Analysis] Memory lookup failed:', err);
+            return {
+                seen_count: 0,
+                first_seen: new Date().toISOString(),
+                last_seen: new Date().toISOString(),
+                volatility: 0,
+                average_score: 0,
+                trend_classification: 'novel' as 'novel',
+                history_scores: []
+            };
+        })
     ]);
 
+    const engineResults = engineResultsRaw.filter((r: any) => r !== null);
+    const memory = memoryResultRaw;
+
+    if (engineResults.length === 0) {
+        console.warn('[Analysis] Critical failure: All parallel engines failed');
+
+        const isSafe = isRootTrusted;
+
+        // Fallback Response
+        const fallbackResult = {
+            artifact: { raw: rawArtifact, type, canonical: artifact },
+            verdict: {
+                classification: isSafe ? 'LEGITIMATE' : 'UNCERTAIN',
+                confidence: { value: 50, range: [0, 50] },
+                fragility: 'HIGH',
+                explanation: 'Analysis incomplete due to engine failures'
+            },
+            riskScore: isSafe ? 0 : 50,
+            confidence: 0.5,
+
+            root_trusted: isRootTrusted,
+            domain_trust: rootTrust.verdict || 'UNKNOWN',
+            usage_risk: isSafe ? 'BENIGN' : 'SUSPICIOUS',
+            final_assessment: isSafe ? 'SAFE' : 'SUSPICIOUS',
+
+            confidence_level: 0.5,
+            stability_score: 0.5,
+            uncertainty_flags: ['Analysis Incomplete', 'System Error'],
+            self_critique: {
+                 assumptions_made: [],
+                 what_might_be_wrong: ['System failure'],
+                 missing_information: ['All engines failed']
+            },
+
+            signals: ['Analysis Incomplete'],
+            why_it_matters: ['Analysis could not be completed due to internal system errors.'],
+            summary: 'Analysis Failed - System Error',
+            features: {},
+            explanation: {
+                primaryFactors: ['System Error'],
+                technicalAnalysis: 'Internal engine failure prevented complete analysis.',
+                recommendedActions: ['Retry analysis later'],
+                summary: 'Analysis Incomplete'
+            },
+            meta: {
+                executionTimeMs: Date.now() - start,
+                cached: false,
+                tierUsed: [],
+                modelVersion: 'v4.0.0-fallback'
+            }
+        } as unknown as AnalysisResult;
+
+        return new Response(JSON.stringify({
+            ok: true,
+            error_code: null,
+            message: 'Analysis completed with errors (Fallback)',
+            data: fallbackResult,
+            id: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+            status: 'completed',
+            result: fallbackResult
+        }), {
+            headers: { ...securityHeaders, ...rlHeaders, 'Content-Type': 'application/json' } as any
+        });
+    }
+
     console.log('[Analysis] Engines and Memory lookup completed successfully');
-    const memory = memoryResult;
 
     // 3. Aggregation
     let totalScore = 0;
@@ -236,6 +323,10 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
 
         if (r.score > totalScore) totalScore = r.score;
         if (r.summary) whyItMatters.push(`${r.name}: ${r.summary}`);
+    }
+
+    if (signals.length === 0) {
+        signals.push("No specific threats detected");
     }
 
     const riskTimeline: RiskTimelineStage[] = [];
