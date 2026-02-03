@@ -62,7 +62,7 @@ describe('Root Cause Analysis Verification', () => {
             const result = data.data as AnalysisResult;
             expect(result.verdict).toBe('BENIGN');
             expect(result.signals.length).toBeGreaterThan(0);
-            expect(result.signals).toContain('reputation_neutral');
+            expect(result.signals).toContain('reputation_clean_check');
 
         } catch (e) {
             console.error('Test Execution Failed:', e);

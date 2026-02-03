@@ -84,22 +84,21 @@ export function analyzeReputation(artifact: string, type: ArtifactType): EngineR
 
              score += 90;
              confidence = 0.9;
+        } else {
+             // Analyzed but no match found - Explicit Proof of Analysis
+             const id = 'reputation_clean_check';
+             signals.push(id);
+             features.push({
+                 id,
+                 tier: 'TIER_1_LOCAL',
+                 detected: true,
+                 riskContribution: 0,
+                 description: 'Analyzed against known malicious patterns; no matches found.',
+                 evidence: [`Checked ${MALICIOUS_PATTERNS.length} patterns`]
+             });
+             // We ran the check, so confidence is low (limited list) but non-zero
+             confidence = 0.1;
         }
-    }
-
-    // MANDATORY SIGNAL CHECK
-    if (signals.length === 0) {
-        signals.push('reputation_neutral');
-        features.push({
-            id: 'reputation_neutral',
-            tier: 'TIER_1_LOCAL',
-            detected: true,
-            riskContribution: 0,
-            description: 'No known reputation risks detected',
-            evidence: []
-        });
-        // We checked our lists and found nothing. Confidence is non-zero but low because our lists are small.
-        confidence = 0.1;
     }
 
     return {

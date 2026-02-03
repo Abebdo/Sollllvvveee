@@ -92,14 +92,16 @@ export function analyzeContext(artifact: string, type: ArtifactType, context?: A
     }
 
     if (signals.length === 0) {
-        signals.push('context_neutral');
+        // Explicit analysis completion signal (Proof of Work)
+        const id = 'context_analysis_completed';
+        signals.push(id);
         features.push({
-            id: 'context_neutral',
+            id,
             tier: 'TIER_1_LOCAL',
             detected: true,
             riskContribution: 0,
-            description: 'No significant contextual risks',
-            evidence: []
+            description: 'Contextual analysis completed; no significant modifiers detected.',
+            evidence: [context?.source || 'Default Context']
         });
     }
 
