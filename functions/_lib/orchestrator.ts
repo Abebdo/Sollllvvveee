@@ -77,6 +77,19 @@ const securityHeaders = {
     'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none';"
 };
 
+interface EngineDefinition {
+    name: string;
+    fn: () => Promise<any> | any;
+}
+
+function checkEngineHealth(engines: EngineDefinition[]) {
+    for (const engine of engines) {
+        if (typeof engine.fn !== 'function') {
+             throw new AppError(ErrorCode.INTERNAL_ERROR, `Engine ${engine.name} is not callable`);
+        }
+    }
+}
+
 export async function handleAnalysisRequest(request: Request, env: Env): Promise<Response> {
     const start = Date.now();
     const timestamp = new Date().toISOString();
@@ -176,136 +189,98 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         rootTrust = await analyzeRootTrust(artifact, type);
     } catch (e) {
         console.error('[Analysis] Root Trust failed:', e);
-        rootTrust = {
-            is_trusted: false,
-            role: 'unknown',
-            engine_result: { name: 'root_trust', score: 0, confidence: 0, verdict: 'UNKNOWN' },
-            verdict: 'UNKNOWN'
-        };
+        // Root Trust is critical for "Immunized" domains, but if it fails, we should probably fail safe?
+        // Plan says critical engines failure -> abort.
+        // Assuming Root Trust is critical.
+        throw new AppError(ErrorCode.INTERNAL_ERROR, `Root Trust Engine failed: ${e instanceof Error ? e.message : String(e)}`);
     }
     const isRootTrusted = rootTrust.is_trusted;
     const realityRole = rootTrust.role;
     console.log(`[Analysis] Root Trust result: ${isRootTrusted} (${realityRole})`);
 
-    // 2. Parallel: Engines + Memory
-    const enginePromises: Array<{ name: string; fn: () => any }> = [
+    // 2. Engine Definition & Health Check
+    const criticalEngines: EngineDefinition[] = [
         { name: 'reputation', fn: () => analyzeReputation(artifact, type) },
         { name: 'structure', fn: () => analyzeStructure(artifact, type) },
     ];
 
+    // Non-critical engines can fail without aborting analysis
+    const nonCriticalEngines: EngineDefinition[] = [
+        { name: 'baseline', fn: () => analyzeBaseline(artifact, type) }
+    ];
+
     if (artifactClass !== 'INFRASTRUCTURE_ROOT') {
-        enginePromises.push(
+        criticalEngines.push(
             { name: 'context', fn: () => analyzeContext(artifact, type, context) },
             { name: 'heuristic', fn: () => analyzeHeuristic(artifact, type) },
-            { name: 'baseline', fn: () => analyzeBaseline(artifact, type) },
             { name: 'semantic', fn: () => analyzeSemantic(artifact, type) }
         );
     }
 
-    console.log(`[Analysis] Executing ${enginePromises.length} parallel engines...`);
+    checkEngineHealth([...criticalEngines, ...nonCriticalEngines]);
 
-    // ROBUST EXECUTION: Catch individual engine failures
-    const [engineResultsRaw, memoryResultRaw] = await Promise.all([
-        Promise.all(enginePromises.map(async (e) => {
-            const t0 = Date.now();
-            try {
-                const res = await e.fn();
-                if (!res) throw new Error(`Engine ${e.name} returned empty/null result`);
-                return { ...res, _meta: { name: e.name, duration: Date.now() - t0 } };
-            } catch (err) {
-                console.error(`[Analysis] Engine ${e.name} failed:`, err);
-                return null;
-            }
-        })),
-        consultMemory(env, artifact).catch(err => {
-            console.error('[Analysis] Memory lookup failed:', err);
-            return {
-                seen_count: 0,
-                first_seen: new Date().toISOString(),
-                last_seen: new Date().toISOString(),
-                volatility: 0,
-                average_score: 0,
-                trend_classification: 'novel' as 'novel',
-                history_scores: []
-            };
-        })
-    ]);
+    console.log(`[Analysis] Executing ${criticalEngines.length} critical engines and ${nonCriticalEngines.length} auxiliary engines...`);
 
-    const engineResults = engineResultsRaw.filter((r: any) => r !== null);
-    const memory = memoryResultRaw;
+    // 3. Execution (MINIMUM VIABLE SET)
 
-    if (engineResults.length === 0) {
-        console.warn('[Analysis] Critical failure: All parallel engines failed');
+    // Critical Engines: At least ONE must succeed
+    const criticalPromises = criticalEngines.map(async (e) => {
+        const t0 = Date.now();
+        try {
+            const res = await e.fn();
+            if (!res) throw new Error(`Engine ${e.name} returned empty/null result`);
+            return { ...res, _meta: { name: e.name, duration: Date.now() - t0 } };
+        } catch (err) {
+            console.warn(`[Analysis] Critical engine ${e.name} failed (continuing):`, err);
+            return null;
+        }
+    });
 
-        const isSafe = isRootTrusted;
+    const criticalResultsRaw = await Promise.all(criticalPromises);
+    const criticalResults = criticalResultsRaw.filter((r: any) => r !== null);
 
-        // Fallback Response
-        const fallbackResult = {
-            artifact: { raw: rawArtifact, type, canonical: artifact },
-            verdict: {
-                classification: isSafe ? 'LEGITIMATE' : 'UNCERTAIN',
-                confidence: { value: 50, range: [0, 50] },
-                fragility: 'HIGH',
-                explanation: 'Analysis incomplete due to engine failures'
-            },
-            riskScore: isSafe ? 0 : 50,
-            confidence: 0.5,
-
-            root_trusted: isRootTrusted,
-            domain_trust: rootTrust.verdict || 'UNKNOWN',
-            usage_risk: isSafe ? 'BENIGN' : 'SUSPICIOUS',
-            final_assessment: isSafe ? 'SAFE' : 'SUSPICIOUS',
-
-            confidence_level: 0.5,
-            stability_score: 0.5,
-            uncertainty_flags: ['Analysis Incomplete', 'System Error'],
-            self_critique: {
-                 assumptions_made: [],
-                 what_might_be_wrong: ['System failure'],
-                 missing_information: ['All engines failed']
-            },
-
-            signals: ['Analysis Incomplete'],
-            why_it_matters: ['Analysis could not be completed due to internal system errors.'],
-            summary: 'Analysis Failed - System Error',
-            features: {},
-            explanation: {
-                primaryFactors: ['System Error'],
-                technicalAnalysis: 'Internal engine failure prevented complete analysis.',
-                recommendedActions: ['Retry analysis later'],
-                summary: 'Analysis Incomplete'
-            },
-            meta: {
-                executionTimeMs: Date.now() - start,
-                cached: false,
-                tierUsed: [],
-                modelVersion: 'v4.0.0-fallback'
-            }
-        } as unknown as AnalysisResult;
-
-        return new Response(JSON.stringify({
-            ok: true,
-            error_code: null,
-            message: 'Analysis completed with errors (Fallback)',
-            data: fallbackResult,
-            id: crypto.randomUUID(),
-            timestamp: new Date().toISOString(),
-            status: 'completed',
-            result: fallbackResult
-        }), {
-            headers: { ...securityHeaders, ...rlHeaders, 'Content-Type': 'application/json' } as any
-        });
+    if (criticalResults.length === 0) {
+        console.error("[Analysis] CRITICAL FAILURE: All critical engines failed.");
+        throw new AppError(ErrorCode.INTERNAL_ERROR, "Analysis failed: All critical intelligence components failed");
     }
 
-    console.log('[Analysis] Engines and Memory lookup completed successfully');
+    // Non-Critical Engines: BEST EFFORT (Promise.allSettled)
+    const nonCriticalPromises = nonCriticalEngines.map(async (e) => {
+        const t0 = Date.now();
+        try {
+            const res = await e.fn();
+            if (!res) throw new Error(`Engine ${e.name} returned empty/null result`);
+            return { ...res, _meta: { name: e.name, duration: Date.now() - t0 } };
+        } catch (err) {
+            console.warn(`[Analysis] Non-critical engine ${e.name} failed (ignoring):`, err);
+            return null;
+        }
+    });
 
-    // 3. Aggregation
-    let totalScore = 0;
-    const aggregatedFeatures: Record<string, FeatureResult> = {};
-    const signals: string[] = [];
-    const whyItMatters: string[] = [];
-    const cognitiveTrace: CognitiveTraceStep[] = [];
-    const validEngineResults: EngineResult[] = [];
+    // Memory (Best Effort)
+    const memoryPromise = consultMemory(env, artifact).catch(err => {
+        console.error('[Analysis] Memory lookup failed:', err);
+        return {
+            seen_count: 0,
+            first_seen: new Date().toISOString(),
+            last_seen: new Date().toISOString(),
+            volatility: 0,
+            average_score: 0,
+            trend_classification: 'novel' as 'novel',
+            history_scores: []
+        };
+    });
+
+    const [nonCriticalResultsRaw, memory] = await Promise.all([
+        Promise.all(nonCriticalPromises), // We already caught errors inside map
+        memoryPromise
+    ]);
+
+    // Combine Results
+    const validEngineResults: EngineResult[] = [
+        ...criticalResults,
+        ...nonCriticalResultsRaw.filter((r: any) => r !== null)
+    ];
 
     // Inject Root Trust result
     validEngineResults.push({
@@ -313,10 +288,16 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         _meta: { name: 'root_trust', duration: 0 }
     } as any);
 
-    // Process Parallel Results
-    for (const r of engineResults) {
-        validEngineResults.push(r);
+    console.log('[Analysis] Engines and Memory lookup completed successfully');
 
+    // 4. Aggregation
+    let totalScore = 0;
+    const aggregatedFeatures: Record<string, FeatureResult> = {};
+    const signals: string[] = [];
+    const whyItMatters: string[] = [];
+    const cognitiveTrace: CognitiveTraceStep[] = [];
+
+    for (const r of validEngineResults) {
         if (r.features) r.features.forEach((f: FeatureResult) => aggregatedFeatures[f.id] = f);
         if (r.signals) signals.push(...r.signals);
         if (r.trace) cognitiveTrace.push(...r.trace);
@@ -325,21 +306,22 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         if (r.summary) whyItMatters.push(`${r.name}: ${r.summary}`);
     }
 
+    // MINIMUM VIABLE RESULT RULE
+    // "Analysis must fail if zero valid signals are produced"
     if (signals.length === 0) {
-        signals.push("No specific threats detected");
+        console.error("[Analysis] Zero signals produced. Aborting.");
+        throw new AppError(ErrorCode.INTERNAL_ERROR, "Analysis failed: Zero valid signals produced (Minimum Viable Result violation)");
     }
 
     const riskTimeline: RiskTimelineStage[] = [];
     riskTimeline.push({ stage: 'Initial Aggregation', score: totalScore });
 
-    // 4. Conflict Resolution & Context
-    // Extract semantic intent early
+    // 5. Conflict Resolution & Context
     const semanticResult = validEngineResults.find(r => r.name === 'semantic');
     const semanticIntentData = semanticResult ? (semanticResult as any).semantic_intent : undefined;
 
     const conflict = analyzeConflict(validEngineResults, isRootTrusted);
 
-    // Adjust Score based on Conflict
     if (conflict.conflict_detected && conflict.winning_signal !== 'REPUTATION') {
         if (totalScore < 60) {
             totalScore = 65;
@@ -348,22 +330,46 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         }
     }
 
-    // 5. Meta Judgment
+    // 6. Meta Judgment
     const metaJudgment = analyzeMetaJudgment(validEngineResults);
 
-    // 6. Fragility (with Memory)
+    // 7. Fragility
     const isFirstSeen = memory.seen_count === 0;
     const fragility = analyzeFragility(validEngineResults, isFirstSeen);
 
-    // 7. Deep Intel (Behavioral, Infra, Campaign)
-    const temporalAnalysis = await analyzeTemporal(env, cacheKey, totalScore);
-    const behavioral = analyzeBehavioralTimeline(totalScore, memory.history_scores);
-    const fingerprint = generateCampaignFingerprint(artifact);
-    const campaignMemory = await consultCampaignMemory(env, fingerprint);
-    const campaign = analyzeCampaignCorrelation(artifact, campaignMemory);
+    // 8. Deep Intel (Behavioral, Infra, Campaign)
+    // Non-blocking enhancers
 
-    // Analyze Infrastructure (Needs semantic intent)
-    const infrastructure = analyzeInfrastructure(artifact, type, semanticIntentData?.intent);
+    let temporalAnalysis: any = { last_score: null, delta: null, trend: 'insufficient_data' };
+    let behavioral: any = { behavioral_drift: 'NONE', timeline_confidence_penalty: 0, history_summary: 'Analysis unavailable' };
+    let campaign: any = { campaign_confidence: 0, related_artifacts_count: 0 };
+    let infrastructure: any = { infrastructure_risk_score: 0, trusted_infra_abuse: false, provider_name: 'Unknown' };
+    let fingerprint: string = '';
+
+    try {
+        fingerprint = generateCampaignFingerprint(artifact);
+
+        // Parallel execution for Deep Intel
+        const [tempRes, behavRes, campMem, infraRes] = await Promise.all([
+             analyzeTemporal(env, cacheKey, totalScore).catch(e => temporalAnalysis),
+             Promise.resolve(analyzeBehavioralTimeline(totalScore, memory.history_scores)).catch(e => behavioral),
+             consultCampaignMemory(env, fingerprint).catch(e => ({})),
+             Promise.resolve(analyzeInfrastructure(artifact, type, semanticIntentData?.intent)).catch(e => infrastructure)
+        ]);
+
+        if (tempRes) temporalAnalysis = tempRes;
+        if (behavRes) behavioral = behavRes;
+        if (infraRes) infrastructure = infraRes;
+
+        // Campaign depends on memory lookup
+        try {
+            campaign = analyzeCampaignCorrelation(artifact, campMem);
+        } catch(e) { /* ignore campaign failure */ }
+
+    } catch (e) {
+        console.error("[Analysis] Deep Intel failed (Non-blocking):", e);
+        // Continue with defaults
+    }
 
     // Adjust Score based on Deep Intel
     if (behavioral.behavioral_drift === 'HIGH') {
@@ -381,7 +387,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         totalScore += 15;
     }
 
-    // 8. Verdict Logic
+    // 9. Verdict Logic
     let verdict: RiskVerdict | null = null;
 
     if (totalScore > 80) verdict = 'MALICIOUS';
@@ -421,10 +427,9 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
              finalAssessment = 'TRUSTED_SERVICE_ABUSED';
              if (verdict === 'BENIGN') verdict = 'SUSPICIOUS';
         } else {
-             // NO ABUSE = LEGITIMATE
              finalAssessment = 'SAFE';
              verdict = 'BENIGN';
-             totalScore = 0; // Force score to 0
+             totalScore = 0;
         }
     } else {
          if (verdict === 'MALICIOUS') finalAssessment = 'MALICIOUS_SERVICE';
@@ -436,7 +441,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     if (!finalAssessment) throw new AppError(ErrorCode.INTERNAL_ERROR, "Verdict generation failed: finalAssessment is null");
     if (!usageRisk) throw new AppError(ErrorCode.INTERNAL_ERROR, "Verdict generation failed: usageRisk is null");
 
-    // 9. Confidence Governor
+    // 10. Confidence Governor
     let rawConfidence = calculateConfidence(validEngineResults).score;
 
     // Adjustments
@@ -451,7 +456,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
     // Range Calculation
     const confidenceRange = calculateConfidenceRange(finalConfidence, verdict, fragility.level, conflict, metaJudgment.source_diversity);
 
-    // 10. Explanation & Output
+    // 11. Explanation & Output
     const epistemicProfile = buildEpistemicProfile(finalConfidence, verdict, fragility, conflict, metaJudgment);
     const reasoningGraph = buildReasoningGraph(aggregatedFeatures, verdict);
 

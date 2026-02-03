@@ -74,13 +74,17 @@ export class RiskEngine {
 
         if (!response.ok) {
             console.error(`Backend failed with status ${response.status}`);
-            // Return ERROR status so UI can handle it (e.g. show error message)
-            // DO NOT fabricate a success result.
+            let errorMessage = `System returned error: ${response.status}`;
+            try {
+                const errJson = await response.json() as any;
+                if (errJson.message) errorMessage = errJson.message;
+            } catch (e) { /* ignore */ }
+
             return {
                 status: 'ERROR',
-                risk_level: 'Medium', // Fallback risk level for type safety, but status is ERROR
+                risk_level: 'Medium', // Ignored by UI when status is ERROR
                 primary_hypothesis: 'Analysis Failed',
-                summary: `System returned error: ${response.status}`,
+                summary: errorMessage,
                 uncertainty: {
                     confidence_percentage: null,
                     known_unknowns: [],
