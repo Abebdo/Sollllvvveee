@@ -1,136 +1,48 @@
-import { EngineResult } from './types';
+import { EngineResult } from '../engine_contract';
 import { MetaJudgmentResult } from '../types';
 
 export function analyzeMetaJudgment(results: EngineResult[]): MetaJudgmentResult {
-    const validResults = results.filter(r => r && typeof r.score === 'number');
+    const executed = results.filter(r => r.executed);
 
-    if (validResults.length === 0) {
-        // STRICT MODE: No valid engines -> System Failure.
-        // The orchestrator must guarantee at least minimum critical engines.
-        throw new Error("Meta-Judgment Analysis failed: No valid engine results available for consensus.");
-    }
-
-    // 1. Engine Families
-    const families = {
-        reputation: ['reputation', 'root_trust'],
-        heuristic: ['heuristic', 'structure', 'baseline'],
-        semantic: ['semantic'],
-        context: ['context']
-    };
-
-    const presentFamilies = new Set<string>();
-    const familyScores: Record<string, number[]> = {};
-
-    validResults.forEach(r => {
-        let fam = 'heuristic'; // Default
-        if (families.reputation.includes(r.name)) fam = 'reputation';
-        else if (families.semantic.includes(r.name)) fam = 'semantic';
-        else if (families.context.includes(r.name)) fam = 'context';
-
-        presentFamilies.add(fam);
-        if (!familyScores[fam]) familyScores[fam] = [];
-        familyScores[fam].push(r.score);
+    // 1. Source Diversity
+    // Group by engine "family" (heuristic, reputation, semantic)
+    const families = new Set<string>();
+    results.forEach(r => {
+        if (r.engine === 'structure') families.add('heuristic');
+        if (r.engine === 'reputation') families.add('reputation');
+        if (r.engine === 'semantic') families.add('semantic');
+        if (r.engine === 'context') families.add('context');
+        if (r.engine === 'behavior') families.add('behavior');
     });
 
-    const engine_family_diversity = parseFloat((presentFamilies.size / 4).toFixed(2));
+    const diversityScore = Math.min(1.0, families.size / 5); // Normalized roughly (5 families supported)
 
-    // 2. Statistics
-    const scores = validResults.map(r => r.score);
-    const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
-    const variance = scores.reduce((a, b) => a + Math.pow(b - avgScore, 2), 0) / scores.length;
-    const stdDev = Math.sqrt(variance);
-    const agreementScore = Math.max(0, parseFloat((1 - (stdDev / 50)).toFixed(2)));
+    // 2. Agreement
+    // Do engines agree on Risk vs Safe?
+    // Count engines with signals vs without
+    const riskEngines = executed.filter(r => r.signals.length > 0).length;
+    const cleanEngines = executed.filter(r => r.signals.length === 0).length;
 
-    // 3. Agreement Ratio (Consensus Direction)
-    const riskyCount = scores.filter(s => s >= 50).length;
-    const safeCount = scores.filter(s => s < 50).length;
-    const majorityCount = Math.max(riskyCount, safeCount);
-    const agreement_ratio = parseFloat((majorityCount / validResults.length).toFixed(2));
-
-    // 4. Source Diversity (Legacy Calculation)
-    // Count engines that contributed features or significant signals
-    const contributingEngines = validResults.filter(r =>
-        (r.features && r.features.length > 0) || r.score > 0
-    );
-    const sourceDiversity = parseFloat((contributingEngines.length / Math.max(1, results.length)).toFixed(2));
-
-    // 5. Echo Chamber Risk
-    let echo_chamber_risk: 'LOW' | 'MEDIUM' | 'HIGH' = 'LOW';
-
-    // High risk if diversity is low OR if only one family is represented
-    if (sourceDiversity < 0.4 || presentFamilies.size <= 1) {
-        echo_chamber_risk = 'HIGH';
-    } else if (presentFamilies.size === 2) {
-        // e.g. only static + reputation (missing behavioral/heuristic)
-        if (!presentFamilies.has('semantic')) {
-            echo_chamber_risk = 'MEDIUM';
-        }
+    let agreementScore = 1.0;
+    if (riskEngines > 0 && cleanEngines > 0) {
+        // Disagreement
+        agreementScore = Math.max(0.5, 1 - (Math.min(riskEngines, cleanEngines) / executed.length));
     }
 
-    // 6. Fragility & Adjustments
-    const warnings: string[] = [];
-    const notes: string[] = [];
-    let adjustment = 1.0;
-    let fragility_level: 'LOW' | 'MEDIUM' | 'HIGH' = 'LOW';
-
-    // Rule: Diversity < 0.3 => degrade confidence significantly
-    if (sourceDiversity < 0.3) {
-        adjustment *= 0.75;
-        warnings.push('Low source diversity: verdict relies on too few engines.');
-        if (fragility_level === 'LOW') fragility_level = 'MEDIUM';
-    }
-
-    // Rule: Agreement Illusion (High confidence but high disagreement)
-    if (agreementScore < 0.6) {
-        warnings.push('Engines disagree significantly on the risk level.');
-        adjustment *= 0.8;
-        if (fragility_level === 'LOW') fragility_level = 'MEDIUM';
-    }
-
-    // Rule: Reputation vs Reality
-    // If reputation is safe (0) but heuristics/behavior is risky (>40)
-    const reputation = validResults.find(r => r.name === 'reputation');
-    const riskyEngines = validResults.filter(r => r.score > 40 && r.name !== 'reputation');
-
-    if (reputation && reputation.score === 0 && riskyEngines.length > 0) {
-        warnings.push('Reputation safe-list contradicted by active risk signals');
-        notes.push(`Reputation is clean, but [${riskyEngines.map(r => r.name).join(', ')}] detected risks.`);
-        adjustment *= 0.6; // Heavy penalty
-        fragility_level = 'HIGH';
-    }
-
-    // Rule: Single Source Reliance (if only 1 engine returned result)
-    if (validResults.length === 1) {
-        warnings.push('Verdict relies on a single engine source.');
-        adjustment *= 0.7;
-        fragility_level = 'HIGH';
-        echo_chamber_risk = 'HIGH';
-    }
-
-    // Rule: High Agreement but Low Diversity -> Penalize confidence
-    if (agreement_ratio > 0.9 && engine_family_diversity < 0.5) {
-        warnings.push('High agreement from low diversity sources (Echo Chamber Effect).');
-        adjustment *= 0.85;
-        echo_chamber_risk = 'HIGH';
-    }
+    // 3. Echo Chamber Risk
+    // If only reputation engines ran -> High Risk
+    let echoChamber: 'LOW' | 'MEDIUM' | 'HIGH' = 'LOW';
+    if (families.size === 1 && families.has('reputation')) echoChamber = 'HIGH';
 
     return {
-        source_diversity: sourceDiversity,
+        source_diversity: diversityScore,
         agreement_score: agreementScore,
-        echo_chamber_risk,
-        fragility_level,
-        confidence_adjustment: parseFloat(adjustment.toFixed(2)),
-        warnings,
-
-        // Phase 1 Extensions
-        engine_count: validResults.length,
-        engine_family_diversity,
-        agreement_ratio,
-
-        // Compat
-        consensus_score: agreementScore,
-        disagreement_level: stdDev < 15 ? 'low' : (stdDev < 30 ? 'medium' : 'high'),
-        contradictions: warnings,
-        judgment_notes: notes
+        echo_chamber_risk: echoChamber,
+        fragility_level: 'LOW', // Calculated separately by Fragility Engine, but required by type
+        confidence_adjustment: (diversityScore * 0.5) + (agreementScore * 0.5),
+        warnings: echoChamber === 'HIGH' ? ['Analysis relied on a single type of intelligence source'] : [],
+        engine_count: executed.length,
+        engine_family_diversity: diversityScore,
+        agreement_ratio: agreementScore
     };
 }

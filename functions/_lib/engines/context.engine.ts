@@ -1,117 +1,61 @@
-import { ArtifactType, FeatureResult, AnalysisContext } from '../types';
-import { EngineResult } from './types';
-import { CognitiveTraceStep } from '../cognitive_trace';
-import { calculateContextAdjustment } from '../context';
+import { EngineFunction, EngineResult, Signal, Verification } from '../engine_contract';
 
-const PRIVATE_IP_RANGES = [
-    /^10\./,
-    /^192\.168\./,
-    /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
-    /^127\./
-];
+export const analyzeContext: EngineFunction = async (artifact, type, context) => {
+    const signals: Signal[] = [];
+    const verification: Verification[] = [];
 
-export function analyzeContext(artifact: string, type: ArtifactType, context?: AnalysisContext): EngineResult {
-    const features: FeatureResult[] = [];
-    const signals: string[] = [];
-    const trace: CognitiveTraceStep[] = [];
-    let score = 0;
+    // Verification
+    verification.push({
+        check: 'context_evaluation',
+        status: 'PASS',
+        evidence: { context_provided: !!context },
+        timestamp: new Date().toISOString()
+    });
 
-    // 1. Internal Context Analysis (IP ranges, email format)
-    if (type === 'ipv4') {
-        if (PRIVATE_IP_RANGES.some(r => r.test(artifact))) {
-            const id = 'context_private_ip';
-            signals.push(id);
-            features.push({
-                id,
-                tier: 'TIER_1_LOCAL',
-                detected: true,
-                riskContribution: 0, // Not malicious, just internal. Maybe suspicious if public submission.
-                description: 'Private IP address range (Bogon)',
-                evidence: [artifact]
-            });
+    if (!context || !context.source) {
+        return {
+            engine: 'context',
+            executed: true,
+            signals: [],
+            verification,
+            confidenceImpact: 0.1, // No context = low confidence contribution
+            metadata: { message: 'No context provided' }
+        };
+    }
 
-            trace.push({
-                engine: 'context',
-                observation: artifact,
-                rationale: 'Private IP address range (Bogon)',
-                impact: 0,
-                confidence: 1.0
+    // Risk: Email + Executable/Archive
+    if (context.source === 'email') {
+        if (artifact.endsWith('.exe') || artifact.endsWith('.zip')) {
+            signals.push({
+                id: 'high_risk_email_attachment',
+                name: 'High Risk Email Attachment',
+                severity: 'HIGH',
+                score_contribution: 75,
+                description: 'Executable or archive file linked from an email.'
             });
         }
     }
 
-    if (type === 'email') {
-         const [user, domain] = artifact.split('@');
-         if (user && (user.includes('+') || user.length > 30)) {
-             const id = 'context_email_complexity';
-             signals.push(id);
-             features.push({
-                 id,
-                 tier: 'TIER_1_LOCAL',
-                 detected: true,
-                 riskContribution: 10,
-                 description: 'Unusual email user-part format',
-                 evidence: [user]
-             });
-
-             trace.push({
-                engine: 'context',
-                observation: user,
-                rationale: 'Unusual email user-part format',
-                impact: 10,
-                confidence: 0.6
-             });
-
-             score += 10;
-         }
-    }
-
-    // 2. External Context Analysis
-    const adjustment = calculateContextAdjustment(context, type);
-    if (adjustment.scoreModifier !== 0) {
-        const id = 'context_environment_adjustment';
-        signals.push(id);
-        features.push({
-            id,
-            tier: 'TIER_1_LOCAL',
-            detected: true,
-            riskContribution: adjustment.scoreModifier,
-            description: adjustment.reason || 'Contextual Risk Adjustment',
-            evidence: [context?.source || 'Unknown Source']
-        });
-
-        trace.push({
-            engine: 'context',
-            observation: context?.source || 'Unknown Source',
-            rationale: adjustment.reason || 'Contextual Risk Adjustment',
-            impact: adjustment.scoreModifier,
-            confidence: 0.6
-        });
-
-        score += adjustment.scoreModifier;
-    }
-
-    if (signals.length === 0) {
-        // Explicit analysis completion signal (Proof of Work)
-        const id = 'context_environment_verified';
-        signals.push(id);
-        features.push({
-            id,
-            tier: 'TIER_1_LOCAL',
-            detected: true,
-            riskContribution: 0,
-            description: 'Contextual analysis completed; no significant modifiers detected.',
-            evidence: [`Evaluated source: ${context?.source || 'No Source Provided'}`]
-        });
+    // Risk: SMS + Shortener
+    if (context.source === 'sms') {
+        const shorteners = ['bit.ly', 'goo.gl', 't.co', 'tinyurl.com'];
+        if (shorteners.some(s => artifact.toLowerCase().includes(s))) {
+             signals.push({
+                id: 'sms_shortener',
+                name: 'SMS URL Shortener',
+                severity: 'MEDIUM',
+                score_contribution: 60,
+                description: 'SMS contains a shortened URL, a common smishing pattern.'
+            });
+        }
     }
 
     return {
-        name: 'context',
-        confidence: 0.6,
-        score: Math.min(100, Math.max(0, score)),
+        engine: 'context',
+        executed: true,
         signals,
-        features,
-        summary: adjustment.scoreModifier > 0 ? `Risk increased due to ${context?.source} context.` : 'Standard context analysis.',
-        trace
+        verification,
+        confidenceImpact: 0.5,
+        metadata: { source: context.source }
     };
-}
+};
