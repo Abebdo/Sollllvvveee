@@ -1,5 +1,6 @@
 import { EngineResult } from './types';
 import { SemanticIntentResult, ArtifactType } from '../types';
+import { EngineFailureError } from '../errors';
 
 const TRUSTED_INFRA = /google|github|cloudflare|amazon|microsoft|dropbox|herokuapp|netlify|vercel|pages\.dev/i;
 const SENSITIVE_KEYWORDS = /login|signin|password|credential|update|verify|banking|wallet|confirm|account|security|viewform/i;
@@ -33,64 +34,66 @@ export async function analyzeSemantic(artifact: string, type: ArtifactType): Pro
     // FAIL FAST POLICY: If fetch fails, we let it throw. The orchestrator will catch it and fail the analysis.
     if (type === 'url' && (artifact.startsWith('http://') || artifact.startsWith('https://'))) {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1500); // 1.5s timeout fast
+        const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
 
-        const resp = await fetch(artifact, {
-            method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (compatible; Solveya/1.0; +https://solveya.com/bot)',
-                'Accept': 'text/html'
-            },
-            redirect: 'follow',
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
+        try {
+            const resp = await fetch(artifact, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (compatible; Solveya/1.0; +https://solveya.com/bot)',
+                    'Accept': 'text/html'
+                },
+                redirect: 'follow',
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
 
-        if (resp.ok) {
-            const text = await resp.text();
+            if (resp.ok) {
+                const text = await resp.text();
 
-            // HTML Form Detection
-            const hasForm = /<form/i.test(text);
-            const hasPassword = /type=["']?password["']?/i.test(text);
-            const hasEmailInput = /type=["']?email["']?/i.test(text);
+                // HTML Form Detection
+                const hasForm = /<form/i.test(text);
+                const hasPassword = /type=["']?password["']?/i.test(text);
+                const hasEmailInput = /type=["']?email["']?/i.test(text);
 
-            if (hasForm) {
-                if (hasPassword) {
-                    indicators.push('Credential entry field (password) detected');
-                    score += 65;
-                    intent = 'MALICIOUS';
-                    confidence = 0.9;
-                    // If it was already suspicious (trusted infra), this confirms abuse.
-                } else if (hasEmailInput) {
-                    indicators.push('Email collection field detected');
-                    score += 20;
-                    if (!intent || intent === 'BENIGN') {
-                        intent = 'SUSPICIOUS';
-                        confidence = 0.75;
+                if (hasForm) {
+                    if (hasPassword) {
+                        indicators.push('Credential entry field (password) detected');
+                        score += 65;
+                        intent = 'MALICIOUS';
+                        confidence = 0.9;
+                        // If it was already suspicious (trusted infra), this confirms abuse.
+                    } else if (hasEmailInput) {
+                        indicators.push('Email collection field detected');
+                        score += 20;
+                        if (!intent || intent === 'BENIGN') {
+                            intent = 'SUSPICIOUS';
+                            confidence = 0.75;
+                        }
+                    } else {
+                        indicators.push('HTML Form detected');
+                        score += 10;
+                        if (!intent) {
+                            intent = 'BENIGN';
+                            confidence = 0.6;
+                        }
                     }
                 } else {
-                    indicators.push('HTML Form detected');
-                    score += 10;
-                    if (!intent) {
-                        intent = 'BENIGN';
-                        confidence = 0.6;
-                    }
+                     // No forms found - likely static content
+                     if (!intent) {
+                         intent = 'BENIGN';
+                         confidence = 0.8; // High confidence it's benign semantics (no forms)
+                     }
                 }
             } else {
-                 // No forms found - likely static content
-                 if (!intent) {
-                     intent = 'BENIGN';
-                     confidence = 0.8; // High confidence it's benign semantics (no forms)
-                 }
+                // Resp not OK (4xx/5xx)
+                // Explicitly throw failure
+                throw new Error(`Upstream HTTP ${resp.status}`);
             }
-        } else {
-            // Resp not OK (4xx/5xx)
-            // This is ambiguous. Is it benign (broken link) or malicious (taken down)?
-            // Strict mode: We can't analyze content.
-            // But if we throw, we fail everything.
-            // User says "Returns nothing ... Returns partial data ... MUST throw an explicit error."
-            // If we can't analyze semantics, maybe we should throw?
-            throw new Error(`Semantic analysis failed: Upstream HTTP ${resp.status}`);
+        } catch (e: any) {
+             clearTimeout(timeoutId);
+             // Wrap fetch errors in EngineFailureError for the orchestrator to log and abort
+             throw new EngineFailureError('semantic', `Fetch failed: ${e.message}`);
         }
     } else {
         // Not a URL or not http/https
@@ -105,6 +108,10 @@ export async function analyzeSemantic(artifact: string, type: ArtifactType): Pro
          // Should have been set by URL analysis or fetch results
          intent = 'BENIGN';
          confidence = 0.0;
+    }
+
+    if (indicators.length === 0) {
+        indicators.push('semantic_neutral');
     }
 
     // Final Score Normalization

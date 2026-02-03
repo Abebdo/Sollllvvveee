@@ -189,6 +189,7 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
         rootTrust = await analyzeRootTrust(artifact, type);
     } catch (e) {
         console.error('[Analysis] Root Trust failed:', e);
+        if (e instanceof AppError) throw e;
         // Root Trust is critical for "Immunized" domains, but if it fails, we should probably fail safe?
         // Plan says critical engines failure -> abort.
         // Assuming Root Trust is critical.
@@ -231,8 +232,8 @@ export async function handleAnalysisRequest(request: Request, env: Env): Promise
             if (!res) throw new Error(`Engine ${e.name} returned empty/null result`);
             return { ...res, _meta: { name: e.name, duration: Date.now() - t0 } };
         } catch (err) {
-            console.warn(`[Analysis] Critical engine ${e.name} failed (continuing):`, err);
-            return null;
+            console.error('[ENGINE_FAIL]', e.name, err);
+            throw err;
         }
     });
 

@@ -1,6 +1,7 @@
 import { ArtifactType, FeatureResult } from '../types';
 import { EngineResult } from './types';
 import { CognitiveTraceStep } from '../cognitive_trace';
+import { EngineFailureError } from '../errors';
 
 function calculateEntropy(str: string): number {
     if (!str) return 0;
@@ -26,8 +27,11 @@ export function analyzeStructure(artifact: string, type: ArtifactType): EngineRe
     if (type === 'domain' || type === 'url') {
         let domain = artifact;
         if (type === 'url') {
-            // STRICT: No error swallowing
-            domain = new URL(artifact).hostname;
+            try {
+                domain = new URL(artifact).hostname;
+            } catch (e) {
+                throw new EngineFailureError('structure', `Invalid URL: ${artifact}`);
+            }
         }
 
         // Calculate entropy on the SLD (without TLD) if possible for better DGA detection
@@ -91,6 +95,18 @@ export function analyzeStructure(artifact: string, type: ArtifactType): EngineRe
     if (type.startsWith('hash_')) {
         // Valid hash format is structural correctness, effectively benign until proven otherwise by reputation
         // But invalid length for declared type is suspicious
+    }
+
+    if (signals.length === 0) {
+        signals.push('structure_normal');
+        features.push({
+            id: 'structure_normal',
+            tier: 'TIER_1_LOCAL',
+            detected: true,
+            riskContribution: 0,
+            description: 'Structure appears normal',
+            evidence: []
+        });
     }
 
     return {

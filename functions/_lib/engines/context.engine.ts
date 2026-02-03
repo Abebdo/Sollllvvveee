@@ -91,6 +91,18 @@ export function analyzeContext(artifact: string, type: ArtifactType, context?: A
         score += adjustment.scoreModifier;
     }
 
+    if (signals.length === 0) {
+        signals.push('context_neutral');
+        features.push({
+            id: 'context_neutral',
+            tier: 'TIER_1_LOCAL',
+            detected: true,
+            riskContribution: 0,
+            description: 'No significant contextual risks',
+            evidence: []
+        });
+    }
+
     return {
         name: 'context',
         confidence: 0.6,

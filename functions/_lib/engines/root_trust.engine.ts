@@ -1,6 +1,7 @@
 import { EngineResult } from './types';
 import { ArtifactType, DomainTrustVerdict } from '../types';
 import { isRealityAnchor, getProviderRole, isGlobalInfraProvider, GLOBAL_HUMAN_TRUST_SET } from './world_model';
+import { EngineFailureError } from '../errors';
 
 // Re-exporting for backward compatibility
 export { isRealityAnchor as isRootTrusted } from './world_model';
@@ -21,8 +22,14 @@ export async function analyzeRootTrust(artifact: string, type: ArtifactType): Pr
 
     if (type === 'domain' || type === 'url') {
         if (type === 'url') {
-            const url = new URL(artifact);
-            hostname = url.hostname;
+            try {
+                const url = new URL(artifact);
+                hostname = url.hostname;
+            } catch (e) {
+                // If invalid URL, we cannot determine root trust.
+                // We throw an explicit error to indicate malformed input processing failure
+                throw new EngineFailureError('root_trust', `Invalid URL: ${artifact}`);
+            }
         } else {
                 hostname = artifact.replace(/^https?:\/\//, '').split('/')[0];
         }
