@@ -159,9 +159,19 @@ export function analyzeHeuristic(artifact: string, type: ArtifactType): EngineRe
     explanation += ' (Analysis based on static pattern matching and heuristic rules).';
 
     if (signals.length === 0) {
-        signals.push('heuristic_neutral');
-        // Do NOT add feature for neutral heuristic to avoid clutter?
-        // But need signals.
+        // Explicit "Clean" Signal - Proof of Work
+        const id = 'heuristic_checks_passed';
+        signals.push(id);
+        // We do NOT add a FEATURE for this, because it's not a risk feature.
+        // It's a signal that the engine passed all checks.
+        features.push({
+            id,
+            tier: 'TIER_1_LOCAL',
+            detected: true,
+            riskContribution: 0,
+            description: 'Heuristic analysis completed; no malicious patterns matched.',
+            evidence: ['Passed static pattern analysis']
+        });
     }
 
     return {

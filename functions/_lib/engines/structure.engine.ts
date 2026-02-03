@@ -64,6 +64,25 @@ export function analyzeStructure(artifact: string, type: ArtifactType): EngineRe
             });
 
             score += 20;
+        } else {
+            // Low Entropy -> Safe Structure (Explicit Signal)
+            const id = 'structure_low_entropy';
+            signals.push(id);
+            features.push({
+                id,
+                tier: 'TIER_1_LOCAL',
+                detected: true,
+                riskContribution: 0,
+                description: 'Domain structure appears natural (low entropy)',
+                evidence: [`Entropy: ${entropy.toFixed(2)}`]
+            });
+             trace.push({
+                engine: 'structure',
+                observation: `Entropy: ${entropy.toFixed(2)}`,
+                rationale: 'Domain structure appears natural (low entropy)',
+                impact: 0,
+                confidence: 0.85
+            });
         }
 
         // Length Check
@@ -95,18 +114,6 @@ export function analyzeStructure(artifact: string, type: ArtifactType): EngineRe
     if (type.startsWith('hash_')) {
         // Valid hash format is structural correctness, effectively benign until proven otherwise by reputation
         // But invalid length for declared type is suspicious
-    }
-
-    if (signals.length === 0) {
-        signals.push('structure_normal');
-        features.push({
-            id: 'structure_normal',
-            tier: 'TIER_1_LOCAL',
-            detected: true,
-            riskContribution: 0,
-            description: 'Structure appears normal',
-            evidence: []
-        });
     }
 
     return {
